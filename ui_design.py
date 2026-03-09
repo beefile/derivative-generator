@@ -22,7 +22,7 @@ SPACE_XL = 24
 
 TITLE = "SYMBOLIC: DERIVATIVE GENERATOR (BASIC RULES)"
 PLACEHOLDER = "Enter a function, e.g., 2x^2 - 5x - 3"
-DEFAULT_META = "Runtime: — | Timestamp: — | Iterations: — | Library: N/A yet"
+DEFAULT_META = "Runtime: -- | Timestamp: -- | Iterations: -- | Library: SymPy"
 
 # ---------------------- APP SETUP ----------------------
 ctk.set_appearance_mode("light")
@@ -143,17 +143,17 @@ def apply_meta_to_chips(text: str):
     data = {}
 
     def _clean(value: str) -> str:
-        return (value or "—").replace("â€”", "—").strip()
+        return (value or "--").replace("â€”", "—").strip()
 
     for part in parts:
         if ":" in part:
             key, value = part.split(":", 1)
             data[key.strip().lower()] = value.strip()
 
-    runtime_val.configure(text=_clean(data.get("runtime", "—")))
-    timestamp_val.configure(text=_clean(data.get("timestamp", "—")))
-    iterations_val.configure(text=_clean(data.get("iterations", "—")))
-    library_val.configure(text=_clean(data.get("library", "N/A yet")))
+    runtime_val.configure(text=_clean(data.get("runtime", "--")))
+    timestamp_val.configure(text=_clean(data.get("timestamp", "--")))
+    iterations_val.configure(text=_clean(data.get("iterations", "--")))
+    library_val.configure(text=_clean(data.get("library", "SymPy")))
 
 # ---------------------- ROOT ----------------------
 root = ctk.CTkFrame(app, fg_color="#F0F0F0")
@@ -425,10 +425,10 @@ meta_strip.configure(height=100)
 for col in range(4):
     meta_strip.grid_columnconfigure(col, weight=1)
 
-runtime_chip, runtime_val = make_stat_chip(meta_strip, "Runtime", "—")
-timestamp_chip, timestamp_val = make_stat_chip(meta_strip, "Timestamp", "—")
-iterations_chip, iterations_val = make_stat_chip(meta_strip, "Iterations", "—")
-library_chip, library_val = make_stat_chip(meta_strip, "Library", "N/A yet")
+runtime_chip, runtime_val = make_stat_chip(meta_strip, "Runtime", "--")
+timestamp_chip, timestamp_val = make_stat_chip(meta_strip, "Timestamp", "--")
+iterations_chip, iterations_val = make_stat_chip(meta_strip, "Iterations", "--")
+library_chip, library_val = make_stat_chip(meta_strip, "Library", "SymPy")
 
 runtime_chip.grid(row=0, column=0, sticky="ew", padx=(0, SPACE_SM))
 timestamp_chip.grid(row=0, column=1, sticky="ew", padx=SPACE_SM)
