@@ -311,6 +311,25 @@ def start_validation():
     lines.append("FINAL ANSWER:")
     lines.append(f"f'({var}) = {sp.sstr(derivative)}")
     lines.append("")
+    
+    lines.append("VERIFICATION:")
+    # Compute derivative using SymPy directly
+    sympy_derivative = sp.diff(parsed_expr, var)
+
+    # Compute difference symbolically
+    difference_expr = sp.simplify(derivative - sympy_derivative)
+    
+    # Append safe strings for GUI
+    lines.append(f"1. SymPy derivative: d/d{var}({sp.sstr(parsed_expr)}) = {sp.sstr(sympy_derivative)}")
+    lines.append(f"2. Difference: ({sp.sstr(derivative)}) - ({sp.sstr(sympy_derivative)}) = {sp.sstr(difference_expr)}")
+
+    # Symbolic verification result
+    if sp.simplify(difference_expr) == 0:
+        lines.append("True")
+    else:
+        lines.append("False")
+    lines.append("")  
+
     lines.append("SUMMARY:")
     if rules_used:
         lines.append("Rules used: " + ", ".join(sorted(rules_used)))
