@@ -74,8 +74,10 @@ def validate_expression(expr: str) -> Tuple[bool, str, Optional[sp.Expr]]:
             local_dict=LOCAL_DICT,
             evaluate=True,
         )
-    except Exception as exc:
-        return False, f"Unable to parse expression: {exc}", None
+    except (SyntaxError, ValueError, TypeError):
+        return False, "Unable to parse expression: invalid syntax", None
+    except Exception:
+        return False, "Unable to parse expression: invalid syntax", None
 
     return True, "Validation passed", parsed
 
