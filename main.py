@@ -31,6 +31,8 @@ LOCAL_DICT = {
     "sin": sp.sin,
     "cos": sp.cos,
     "tan": sp.tan,
+    "sec": sp.sec,
+    "exp": sp.exp,
     "sqrt": sp.sqrt,
 }
 LIBRARY_NAME = "SymPy"
@@ -59,13 +61,11 @@ def normalize_input(expr: str) -> str:
     return expr.strip()
 
 
-def validate_expression(expr: str) -> Tuple[bool, str, Optional[sp.Expr]]:
+def validate_input(expr: str) -> Tuple[bool, str, Optional[sp.Expr]]:
     expr = expr.strip()
     if not expr:
         return False, "Expression cannot be empty", None
-    if expr.count("(") != expr.count(")"):
-        return False, "Unmatched parentheses", None
-
+# Validation check simplified; SymPy's parse_expr will handle syntax errors.
     normalized = normalize_input(expr)
     try:
         parsed = parse_expr(
@@ -89,7 +89,7 @@ def _set_meta(runtime_s=None, timestamp=None, iterations=None):
     it = str(iterations) if iterations is not None else "--"
 
     trail_meta.configure(
-        text=f"Runtime: {rt}   |   Timestamp: {ts}   |   Iterations: {it}   |   Library: {LIBRARY_NAME}"
+        text=f"Runtime: {rt}   |   Timestamp: {ts}   |   Steps: {it}   |   Library: {LIBRARY_NAME}"
     )
 
 
@@ -98,17 +98,30 @@ def differentiate_with_steps(expr: sp.Expr, var: sp.Symbol) -> Tuple[sp.Expr, Li
     steps: List[Step] = []
     used_rules: Set[str] = set()
 
+    def format_output(expr_obj) -> str:
+        s = sp.sstr(expr_obj)
+        s = s.replace("**", "^")
+        # Simplify x^1 to x
+        import re
+        s = re.sub(r"\^1(\b)", r"\1", s)
+        return s
+
     def d(expr_inner: sp.Expr) -> str:
-        return f"d/d{var}({sp.sstr(expr_inner)})"
+        return f"d/d{var}({format_output(expr_inner)})"
 
     def record(text: str, rule: str):
+        # Format any expressions in the text
+        # This is a bit tricky, but we can target common patterns
+        text = text.replace("**", "^")
+        import re
+        text = re.sub(r"\^1(\b)", r"\1", text)
         steps.append(Step(text=text, rule=rule))
         used_rules.add(rule)
 
     def recurse(node: sp.Expr) -> sp.Expr:
         # Constant Rule
-        if node.is_Number:
-            record(f"{d(node)} = 0", "Constant Rule")
+        if node.is_number:
+            record(f"{d(node)} = 0 (Derivative of a constant is always 0)", "Constant Rule")
             return sp.Integer(0)
 
         # Variable Rule
@@ -118,24 +131,25 @@ def differentiate_with_steps(expr: sp.Expr, var: sp.Symbol) -> Tuple[sp.Expr, Li
 
         # Sum and Difference Rule
         if node.is_Add:
-            pieces = [d(arg) for arg in node.args]
+            ordered_args = node.as_ordered_terms()
+            pieces = [d(arg) for arg in ordered_args]
             record(f"{d(node)} = " + " + ".join(pieces), "Sum and Difference Rule")
-            derivatives = [recurse(arg) for arg in node.args]
+            derivatives = [recurse(arg) for arg in ordered_args]
             combined = sp.Add(*derivatives)
-            record(f"= {sp.sstr(combined)}", "Sum and Difference Rule")
+            record(f"= {format_output(combined)}", "Sum and Difference Rule")
             return combined
 
         # Constant Multiple Rule (coeff * f(x))
         coeff, factors = node.as_coeff_mul()
         inner = sp.Mul(*factors)
-        if coeff != 1 and inner != 1:
+        if coeff != 1 and inner.has(var):
             record(
-                f"{d(node)} = {coeff} * {d(inner)}",
+                f"{d(node)} = {format_output(coeff)} * {d(inner)}",
                 "Constant Multiple Rule",
             )
             inner_deriv = recurse(inner)
             derivative = coeff * inner_deriv
-            record(f"= {sp.sstr(derivative)}", "Constant Multiple Rule")
+            record(f"= {format_output(derivative)}", "Constant Multiple Rule")
             return derivative
 
         # Quotient Rule
@@ -149,36 +163,77 @@ def differentiate_with_steps(expr: sp.Expr, var: sp.Symbol) -> Tuple[sp.Expr, Li
             dden = recurse(den)
             derivative = (dnum * den - num * dden) / (den ** 2)
             rule_line = (
-                f"= (({sp.sstr(dnum)})*({sp.sstr(den)}) - ({sp.sstr(num)})*({sp.sstr(dden)})) / ({sp.sstr(den)}**2)"
+                f"= (({format_output(dnum)})*({format_output(den)}) - ({format_output(num)})*({format_output(dden)})) / ({format_output(den)}^2)"
             )
             record(rule_line, "Quotient Rule")
             return derivative
 
-        # Product Rule
+        # Generalized Product Rule
         if node.is_Mul:
-            factors = node.args
+            factors = list(node.args)
             if len(factors) >= 2:
-                f = factors[0]
-                g = sp.Mul(*factors[1:]) if len(factors) > 2 else factors[1]
                 record(
-                    f"{d(node)} -> Apply Product Rule with f={sp.sstr(f)}, g={sp.sstr(g)}",
+                    f"{d(node)} -> Apply Generalized Product Rule",
                     "Product Rule",
                 )
-                df = recurse(f)
-                dg = recurse(g)
-                derivative = df * g + f * dg
-                record(
-                    f"= ({sp.sstr(df)})*({sp.sstr(g)}) + ({sp.sstr(f)})*({sp.sstr(dg)})",
-                    "Product Rule",
-                )
+                
+                # Cache derivatives to avoid redundant recurse calls/steps
+                derivatives_cache = [recurse(f) for f in factors]
+                
+                terms = []
+                for i in range(len(factors)):
+                    df = derivatives_cache[i]
+                    others = factors[:i] + factors[i+1:]
+                    term = [format_output(df)] + [format_output(o) for o in others]
+                    terms.append("(" + ")*(".join(term) + ")")
+                
+                rule_line = "= " + " + ".join(terms)
+                record(rule_line, "Product Rule")
+                
+                # Compute derivative symbolically using cached values
+                derivative = 0
+                for i in range(len(factors)):
+                    df = derivatives_cache[i]
+                    others = factors[:i] + factors[i+1:]
+                    term_expr = df * sp.Mul(*others)
+                    derivative += term_expr
                 return derivative
+
+        # Square Root Rule
+        if isinstance(node, sp.Pow) and node.exp == sp.Rational(1, 2):
+            record(f"{d(node)} -> Apply Square Root Rule", "Square Root Rule")
+            inner = node.base
+            inner_deriv = recurse(inner)
+            derivative = inner_deriv / (2 * sp.sqrt(inner))
+            record(
+                f"= ({format_output(inner_deriv)}) / (2 * sqrt({format_output(inner)}))",
+                "Square Root Rule",
+            )
+            return derivative
 
         # Power Rule (x^n)
         if node.is_Pow and node.base == var and node.exp.is_number:
             derivative = node.exp * var ** (node.exp - 1)
+            exp_minus_1 = node.exp - 1
+            exp_str = f"^{format_output(exp_minus_1)}" if exp_minus_1 != 1 else ""
             record(
-                f"{d(node)} = {sp.sstr(node.exp)}*{var}^{sp.sstr(node.exp - 1)}",
+                f"{d(node)} = {format_output(node.exp)}*{var}{exp_str}",
                 "Power Rule",
+            )
+            return derivative
+
+        # General Power Rule (a^b) - includes x^x, a^x, etc.
+        if node.is_Pow and (node.base.has(var) or node.exp.has(var)) and not (node.base == var and node.exp.is_number) and not (node.base == sp.E):
+            record(f"{d(node)} -> Apply General Power Rule (assuming base > 0)", "General Power Rule")
+            a = node.base
+            b = node.exp
+            da = recurse(a)
+            db = recurse(b)
+            # (a^b)' = a^b * (b' ln a + b a'/a)
+            derivative = node * (db * sp.log(a) + b * da / a)
+            record(
+                f"= {format_output(node)} * ({format_output(db)}*ln({format_output(a)}) + ({format_output(b)}*{format_output(da)})/{format_output(a)})",
+                "General Power Rule",
             )
             return derivative
 
@@ -189,33 +244,68 @@ def differentiate_with_steps(expr: sp.Expr, var: sp.Symbol) -> Tuple[sp.Expr, Li
             inner_deriv = recurse(inner)
             derivative = node.exp * inner ** (node.exp - 1) * inner_deriv
             record(
-                f"= {sp.sstr(node.exp)}*({sp.sstr(inner)})^{sp.sstr(node.exp - 1)}*({sp.sstr(inner_deriv)})",
+                f"= {format_output(node.exp)}*({format_output(inner)})^{format_output(node.exp - 1)}*({format_output(inner_deriv)})",
                 "Chain Rule",
             )
             return derivative
 
-        # Chain Rule for f(g(x))
-        if node.is_Function:
-            inner = node.args[0] if node.args else var
-            record(f"{d(node)} -> Apply Chain Rule", "Chain Rule")
+        # Trig: Sine Rule
+        if isinstance(node, sp.sin):
+            record(f"{d(node)} -> Apply Sine Rule", "Sine Rule")
+            inner = node.args[0]
             inner_deriv = recurse(inner)
-            outer_deriv = sp.diff(node, inner)
-            derivative = outer_deriv * inner_deriv
+            derivative = sp.cos(inner) * inner_deriv
+            record(f"= cos({format_output(inner)}) * ({format_output(inner_deriv)})", "Sine Rule")
+            return derivative
+
+        # Trig: Cosine Rule
+        if isinstance(node, sp.cos):
+            record(f"{d(node)} -> Apply Cosine Rule", "Cosine Rule")
+            inner = node.args[0]
+            inner_deriv = recurse(inner)
+            derivative = -sp.sin(inner) * inner_deriv
+            record(f"= -sin({format_output(inner)}) * ({format_output(inner_deriv)})", "Cosine Rule")
+            return derivative
+
+        # Trig: Tangent Rule
+        if isinstance(node, sp.tan):
+            record(f"{d(node)} -> Apply Tangent Rule", "Tangent Rule")
+            inner = node.args[0]
+            inner_deriv = recurse(inner)
+            derivative = sp.sec(inner)**2 * inner_deriv
+            record(f"= sec({format_output(inner)})^2 * ({format_output(inner_deriv)})", "Tangent Rule")
+            return derivative
+
+        # Exponential Rule
+        if isinstance(node, sp.exp) or (node.is_Pow and node.base == sp.E):
+            record(f"{d(node)} -> Apply Exponential Rule", "Exponential Rule")
+            inner = node.args[0] if isinstance(node, sp.exp) else node.exp
+            inner_deriv = recurse(inner)
+            derivative = node * inner_deriv
+            record(f"= {format_output(node)} * ({format_output(inner_deriv)})", "Exponential Rule")
+            return derivative
+
+        # Logarithm Rule
+        if isinstance(node, sp.log):
+            record(f"{d(node)} -> Apply Logarithm Rule", "Logarithm Rule")
+            inner = node.args[0]
+            inner_deriv = recurse(inner)
+            derivative = inner_deriv / inner
             record(
-                f"= ({sp.sstr(outer_deriv)})*({sp.sstr(inner_deriv)})",
-                "Chain Rule",
+                f"= ({format_output(inner_deriv)}) / ({format_output(inner)})",
+                "Logarithm Rule",
             )
             return derivative
 
         # Fallback to SymPy diff
         derivative = sp.diff(node, var)
-        record(f"{d(node)} = {sp.sstr(derivative)}", "SymPy diff")
+        record(f"{d(node)} = {format_output(derivative)}", "Advanced Rule (SymPy Fallback)")
         return derivative
 
     raw_derivative = recurse(expr)
     simplified = sp.simplify(raw_derivative)
     if not sp.simplify(raw_derivative - simplified) == 0:
-        record(f"Simplify: {sp.sstr(simplified)}", "Simplify")
+        record(f"Simplify: {format_output(simplified)}", "Simplify")
 
     return simplified, steps, used_rules
 
@@ -265,17 +355,21 @@ def start_validation():
 
     final_value.configure(text="Computing...")
     _set_meta(None, None, None)
-
     user_expr = entry.get()
-
-    timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     start_time = time.time()
+    timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    valid, msg, parsed_expr = validate_expression(user_expr)
+    def format_final(expr_obj) -> str:
+        s = sp.sstr(expr_obj)
+        s = s.replace("**", "^")
+        import re
+        s = re.sub(r"\^1(\b)", r"\1", s)
+        return s
 
-    if not valid:
+    success, message, parsed_expr = validate_input(user_expr)
+    if not success:
         trail_box.configure(state="normal")
-        trail_box.insert("end", f"[VALIDATION] FAIL: {msg}\n")
+        trail_box.insert("end", f"Error: {message}\n")
         trail_box.configure(state="disabled")
         final_value.configure(text="Error in input")
         _set_meta(time.time() - start_time, timestamp_str, 0)
@@ -283,12 +377,16 @@ def start_validation():
         return
 
     # Detect variable
-    free_syms = sorted(list(parsed_expr.free_symbols), key=lambda s: s.name)
+    free_syms = parsed_expr.free_symbols
     if len(free_syms) == 0:
-        var = default_var
-    elif len(free_syms) == 1:
-        var = free_syms[0]
+        var = sp.Symbol("x")  # Symbol for constant functions
+        is_constant = True
     else:
+        # Sort to ensure consistency
+        var = sorted(list(free_syms), key=lambda s: s.name)[0]
+        is_constant = False
+
+    if len(free_syms) > 1:
         trail_box.configure(state="normal")
         trail_box.insert("end", "Error: Expression must contain only one variable.\n")
         trail_box.configure(state="disabled")
@@ -299,19 +397,24 @@ def start_validation():
 
     derivative, steps, rules_used = differentiate_with_steps(parsed_expr, var)
     runtime_val = time.time() - start_time
+    var_str = str(var)
 
     # Build lines for animated typing
     lines: List[str] = []
     lines.append("GIVEN:")
-    lines.append(f"f({var}) = {user_expr}")
+    if is_constant:
+        lines.append(f"f({var_str}) = {user_expr} (constant function)")
+    else:
+        lines.append(f"f({var_str}) = {user_expr}")
     lines.append("")
     lines.append("STEPS:")
-    lines.append(f"1. Apply derivative operator: d/d{var}({sp.sstr(parsed_expr)})")
+    lines.append(f"1. Apply derivative operator: d/d{var_str}({format_final(parsed_expr)})")
     for idx, step in enumerate(steps, start=2):
         lines.append(f"{idx}. {step.text} [{step.rule}]")
     lines.append("")
     lines.append("FINAL ANSWER:")
-    lines.append(f"f'({var}) = {sp.sstr(derivative)}")
+
+    lines.append(f"f'({var_str}) = {format_final(derivative)}")
     lines.append("")
     
     lines.append("VERIFICATION:")
@@ -322,11 +425,11 @@ def start_validation():
     difference_expr = sp.simplify(derivative - sympy_derivative)
     
     # Append safe strings for GUI
-    lines.append(f"1. SymPy derivative: d/d{var}({sp.sstr(parsed_expr)}) = {sp.sstr(sympy_derivative)}")
-    lines.append(f"2. Difference: ({sp.sstr(derivative)}) - ({sp.sstr(sympy_derivative)}) = {sp.sstr(difference_expr)}")
+    lines.append(f"1. SymPy derivative: d/d{var_str}({format_final(parsed_expr)}) = {format_final(sympy_derivative)}")
+    lines.append(f"2. Difference: ({format_final(derivative)}) - ({format_final(sympy_derivative)}) = {format_final(difference_expr)}")
 
     # Symbolic verification result
-    if sp.simplify(difference_expr) == 0:
+    if difference_expr == 0:
         lines.append("True")
     else:
         lines.append("False")
@@ -339,17 +442,17 @@ def start_validation():
     iterations_val = len(steps) + 1  # include the initial derivative operator line
     lines.append(f"Runtime: {runtime_val:.3f}s")
     lines.append(f"Timestamp: {timestamp_str}")
-    lines.append(f"Iterations: {iterations_val}")
+    lines.append(f"Steps: {iterations_val}")
     lines.append(f"Library: {LIBRARY_NAME}")
 
-    final_line_index = lines.index(f"f'({var}) = {sp.sstr(derivative)}")
+    final_line_index = lines.index(f"f'({var_str}) = {format_final(derivative)}")
 
     # Show initial computing message then animate lines
     trail_box.configure(state="normal")
     trail_box.insert("end", "Computing derivative...\n\n")
     trail_box.configure(state="disabled")
 
-    final_answer_text = f"f'({var}) = {sp.sstr(derivative)}"
+    final_answer_text = f"f'({var_str}) = {format_final(derivative)}"
 
     def finalize():
         final_value.configure(text=final_answer_text)

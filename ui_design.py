@@ -172,7 +172,7 @@ header = ctk.CTkFrame(
 header.grid(row=0, column=0, sticky="ew")
 header.grid_columnconfigure(0, weight=1)
 header.grid_rowconfigure(0, weight=1)
-header.grid_propagate(False)
+# Removed grid_propagate(False) or fixed height for flexibility
 
 header_inner = ctk.CTkFrame(header, fg_color=SECONDARY, corner_radius=0)
 header_inner.grid(row=0, column=0, sticky="nsew", padx=SPACE_XL)
@@ -205,30 +205,36 @@ body.grid(row=1, column=0, sticky="nsew", padx=SPACE_XL, pady=SPACE_LG)
 body.grid_rowconfigure(0, weight=1)
 body.grid_columnconfigure(0, weight=3)
 body.grid_columnconfigure(1, weight=4)
+# Prevent internal content from pushing columns left/right
+body.grid_propagate(False)
 
 left_col = ctk.CTkFrame(body, fg_color="#F0F0F0")
 right_col = ctk.CTkFrame(body, fg_color="#F0F0F0")
+
+# Lock horizontal sizes
+left_col.grid_propagate(False)
+right_col.grid_propagate(False)
 
 left_col.grid(row=0, column=0, sticky="nsew", padx=(0, SPACE_MD))
 right_col.grid(row=0, column=1, sticky="nsew", padx=(SPACE_MD, 0))
 
 left_col.grid_columnconfigure(0, weight=1)
-left_col.grid_rowconfigure(0, weight=0)
-left_col.grid_rowconfigure(1, weight=0)
-left_col.grid_rowconfigure(2, weight=1)
+left_col.grid_rowconfigure(0, weight=0) # Input: Keep compact
+left_col.grid_rowconfigure(1, weight=1) # Symbols: Take extra space
+left_col.grid_rowconfigure(2, weight=0) # Answer: Keep compact
 
 right_col.grid_columnconfigure(0, weight=1)
 right_col.grid_rowconfigure(0, weight=1)
 
 # ---------------------- INPUT PANEL ----------------------
 input_outer, input_panel = make_shadow_panel(left_col)
-input_outer.grid(row=0, column=0, sticky="ew", pady=(0, SPACE_MD))
+input_outer.grid(row=0, column=0, sticky="nsew", pady=(0, SPACE_MD))
+# Prevent internal content from resizing the panel during computation
 input_outer.grid_propagate(False)
-input_outer.configure(height=240)
 input_panel.grid_columnconfigure(0, weight=1)
-input_panel.grid_rowconfigure(0, weight=0)
-input_panel.grid_rowconfigure(1, weight=0)
-input_panel.grid_rowconfigure(2, weight=0)
+input_panel.grid_rowconfigure(0, weight=0)  # Header: Fixed
+input_panel.grid_rowconfigure(1, weight=1)  # Input Box: Flexible
+input_panel.grid_rowconfigure(2, weight=0)  # Buttons: Fixed
 
 input_header = make_section_header(input_panel, "Input Function")
 input_header.grid(row=0, column=0, sticky="ew", padx=SPACE_LG, pady=(SPACE_LG, SPACE_SM))
@@ -239,11 +245,13 @@ entry_shell = ctk.CTkFrame(
     corner_radius=RADIUS_MD,
     border_color=SECONDARY,
     border_width=2,
-    height=84
+    height=90
 )
-entry_shell.grid(row=1, column=0, sticky="ew", padx=SPACE_LG, pady=(0, SPACE_MD))
+entry_shell.grid(row=1, column=0, sticky="nsew", padx=SPACE_LG, pady=(0, SPACE_MD))
 entry_shell.grid_columnconfigure(0, weight=1)
-entry_shell.grid_propagate(False)
+entry_shell.grid_rowconfigure(0, weight=1)
+# Remove propagation lock from internal shell to prevent clipping
+# entry_shell.grid_propagate(False)
 
 entry = ctk.CTkEntry(
     entry_shell,
@@ -279,8 +287,10 @@ entry.bind("<FocusIn>", lambda e: _highlight_entry(focus=True))
 entry.bind("<FocusOut>", lambda e: _highlight_entry(focus=False))
 
 button_row = ctk.CTkFrame(input_panel, fg_color=PRIMARY)
-button_row.grid(row=2, column=0, sticky="ew", padx=SPACE_LG, pady=(0, SPACE_LG))
+# Added top padding (SPACE_MD) to separate from the input box
+button_row.grid(row=2, column=0, sticky="ew", padx=SPACE_LG, pady=(SPACE_MD, SPACE_LG))
 button_row.grid_columnconfigure(0, weight=1)
+button_row.grid_columnconfigure(1, weight=0)
 
 compute_btn = ctk.CTkButton(
     button_row,
@@ -311,11 +321,10 @@ reset_btn = ctk.CTkButton(
 )
 reset_btn.grid(row=0, column=1, sticky="e")
 
-# ---------------------- SYMBOLS PANEL ----------------------
 symbols_outer, symbols_panel = make_shadow_panel(left_col)
-symbols_outer.grid(row=1, column=0, sticky="ew", pady=(0, SPACE_MD))
+symbols_outer.grid(row=1, column=0, sticky="nsew", pady=(0, SPACE_MD))
+# Prevent internal content from resizing the panel
 symbols_outer.grid_propagate(False)
-symbols_outer.configure(height=380)
 symbols_panel.grid_columnconfigure(0, weight=1)
 symbols_panel.grid_rowconfigure(0, weight=0)
 symbols_panel.grid_rowconfigure(1, weight=1)
@@ -336,6 +345,8 @@ symbols = [
 max_cols = 4
 for idx in range(max_cols):
     symbols_body.grid_columnconfigure(idx, weight=1)
+for idx in range(4): # 4 rows
+    symbols_body.grid_rowconfigure(idx, weight=1)
 
 for i, (lbl, val) in enumerate(symbols):
     r = i // max_cols
@@ -356,10 +367,9 @@ for i, (lbl, val) in enumerate(symbols):
     )
     btn.grid(row=r, column=c, sticky="ew", padx=SPACE_SM, pady=SPACE_SM)
 
-# ---------------------- FINAL ANSWER PANEL ----------------------
 answer_outer, answer_panel = make_shadow_panel(left_col)
 answer_outer.grid(row=2, column=0, sticky="nsew")
-answer_outer.configure(height=180)
+# Prevent internal content from resizing the panel
 answer_outer.grid_propagate(False)
 
 answer_panel.grid_columnconfigure(0, weight=1)
@@ -419,7 +429,6 @@ trail_box.configure(state="disabled")
 
 meta_strip = ctk.CTkFrame(trail_panel, fg_color=PRIMARY)
 meta_strip.grid(row=2, column=0, sticky="ew", padx=SPACE_LG, pady=(0, SPACE_LG))
-meta_strip.grid_propagate(False)
 meta_strip.configure(height=100)
 
 for col in range(4):
@@ -481,11 +490,57 @@ def maintain_answer_wrap(_event=None):
     except Exception:
         pass
 
-def on_resize(_event=None):
+def on_resize(event=None):
+    # CRITICAL: Only trigger when the main window itself is resized
+    if event and event.widget != app:
+        return
+
     width = app.winfo_width()
+    height = app.winfo_height()
     target = "narrow" if width < 940 else "wide"
     if layout_state["mode"] != target:
         apply_layout(target)
+    
+    # More aggressive dynamic font scaling
+    scale = min(1.0, max(0.45, (height - 200) / 700))
+    font_title.configure(size=int(28 * scale))
+    font_heading.configure(size=int(20 * scale))
+    font_output.configure(size=int(18 * scale))
+    font_trail.configure(size=int(16 * scale))
+    # Dynamic heights and widths to maintain absolute stability
+    body_w = width - (SPACE_XL * 2)
+    body_h = height - 110 - (SPACE_LG * 2) # 110 is header height
+    body.configure(width=body_w, height=body_h)
+
+    if target == "wide":
+        w_left = int(body_w * 0.45)
+        w_right = body_w - w_left - SPACE_MD
+        left_col.configure(width=w_left, height=body_h)
+        right_col.configure(width=w_right, height=body_h)
+    else:
+        left_col.configure(width=body_w, height=int(body_h * 0.5))
+        right_col.configure(width=body_w, height=int(body_h * 0.5))
+
+    h_input = int(240 * scale) if target == "wide" else int(210 * scale)
+    h_symbols = int(380 * scale)
+    h_answer = int(160 * scale)
+    
+    input_outer.configure(height=h_input)
+    symbols_outer.configure(height=h_symbols)
+    answer_outer.configure(height=h_answer)
+    
+    # Ensure containers don't shrink/grow when content changes
+    input_outer.grid_propagate(False)
+    symbols_outer.grid_propagate(False)
+    answer_outer.grid_propagate(False)
+    
+    # Dynamic wraplength based on actual panel width
+    try:
+        new_wrap = int(w_left - 60) if target == "wide" else int(body_w - 60)
+        final_value.configure(wraplength=max(200, new_wrap))
+    except Exception:
+        pass
+    
     maintain_answer_wrap()
 
 app.bind("<Configure>", on_resize)
