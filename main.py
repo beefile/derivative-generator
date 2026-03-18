@@ -369,7 +369,7 @@ def start_validation():
     success, message, parsed_expr = validate_input(user_expr)
     if not success:
         trail_box.configure(state="normal")
-        trail_box.insert("end", f"Error: {message}\n")
+        trail_box.insert("end", f"COMPLETION:\nStopped: {message}\n")
         trail_box.configure(state="disabled")
         final_value.configure(text="Error in input")
         _set_meta(time.time() - start_time, timestamp_str, 0)
@@ -388,7 +388,7 @@ def start_validation():
 
     if len(free_syms) > 1:
         trail_box.configure(state="normal")
-        trail_box.insert("end", "Error: Expression must contain only one variable.\n")
+        trail_box.insert("end", "COMPLETION:\nStopped: Expression must contain only one variable\n")
         trail_box.configure(state="disabled")
         final_value.configure(text="Error in input")
         _set_meta(time.time() - start_time, timestamp_str, 0)
@@ -415,6 +415,15 @@ def start_validation():
     lines.append("FINAL ANSWER:")
 
     lines.append(f"f'({var_str}) = {format_final(derivative)}")
+    lines.append("")
+    
+    lines.append("COMPLETION:")
+
+    if is_constant:
+        lines.append("Stopped early: derivative of a constant is 0")
+    else:
+        lines.append("Process completed: derivative fully computed using differentiation rules")
+
     lines.append("")
     
     lines.append("VERIFICATION:")
