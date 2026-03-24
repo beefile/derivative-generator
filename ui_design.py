@@ -1,11 +1,17 @@
 import customtkinter as ctk
 from tkinter import font as tkfont
 
+from trail_logger import clear_trail
+
 # ---------------------- DESIGN SYSTEM ----------------------
 PRIMARY = "#FFFFFF"
 SECONDARY = "#000000"
 ACCENT = "#d3191c"
 ACCENT_HOVER = "#b22d32"
+METHOD_ACTIVE = "#1F2933"
+METHOD_ACTIVE_HOVER = "#111827"
+METHOD_IDLE = "#E6EAEE"
+METHOD_IDLE_HOVER = "#D7DEE5"
 
 MUTED = "#444444"
 SOFT_BG = "#F7F7F7"
@@ -23,6 +29,8 @@ SPACE_XL = 24
 TITLE = "SYMBOLIC: DERIVATIVE GENERATOR (BASIC RULES)"
 PLACEHOLDER = "Enter a function, e.g., 2x^2 - 5x - 3"
 DEFAULT_META = "Runtime: -- | Timestamp: -- | Iterations: -- | Library: SymPy"
+METHOD_OPTIONS = ["Rule-Based", "Direct SymPy"]
+DEFAULT_METHOD_LABEL = "Rule-Based"
 
 # ---------------------- APP SETUP ----------------------
 ctk.set_appearance_mode("light")
@@ -136,6 +144,10 @@ def insert_symbol(val: str):
 
 def clear_input():
     entry.delete(0, "end")
+    clear_trail(trail_box)
+    final_value.configure(text="Derivative computation will appear here")
+    trail_meta.configure(text=DEFAULT_META)
+    set_method(DEFAULT_METHOD_LABEL)
     entry.focus_set()
 
 def apply_meta_to_chips(text: str):
@@ -234,7 +246,8 @@ input_outer.grid_propagate(False)
 input_panel.grid_columnconfigure(0, weight=1)
 input_panel.grid_rowconfigure(0, weight=0)  # Header: Fixed
 input_panel.grid_rowconfigure(1, weight=1)  # Input Box: Flexible
-input_panel.grid_rowconfigure(2, weight=0)  # Buttons: Fixed
+input_panel.grid_rowconfigure(2, weight=0)  # Method: Fixed
+input_panel.grid_rowconfigure(3, weight=0)  # Buttons: Fixed
 
 input_header = make_section_header(input_panel, "Input Function")
 input_header.grid(row=0, column=0, sticky="ew", padx=SPACE_LG, pady=(SPACE_LG, SPACE_SM))
@@ -286,9 +299,58 @@ def _highlight_entry(_event=None, focus=False):
 entry.bind("<FocusIn>", lambda e: _highlight_entry(focus=True))
 entry.bind("<FocusOut>", lambda e: _highlight_entry(focus=False))
 
+method_frame = ctk.CTkFrame(input_panel, fg_color=PRIMARY)
+method_frame.grid(row=2, column=0, sticky="ew", padx=SPACE_LG, pady=(0, SPACE_MD))
+method_frame.grid_columnconfigure(0, weight=1)
+
+ctk.CTkLabel(
+    method_frame,
+    text="Method Selection",
+    font=font_body,
+    text_color=SECONDARY,
+).grid(row=0, column=0, sticky="w", pady=(0, SPACE_XS))
+
+method_var = ctk.StringVar(value=DEFAULT_METHOD_LABEL)
+method_button_row = ctk.CTkFrame(method_frame, fg_color="transparent")
+method_button_row.grid(row=1, column=0, sticky="ew")
+method_button_row.grid_columnconfigure(0, weight=1)
+method_button_row.grid_columnconfigure(1, weight=1)
+
+method_buttons = {}
+
+def set_method(method_label: str):
+    method_var.set(method_label)
+    for label, button in method_buttons.items():
+        is_selected = label == method_label
+        button.configure(
+            fg_color=METHOD_ACTIVE if is_selected else METHOD_IDLE,
+            hover_color=METHOD_ACTIVE_HOVER if is_selected else METHOD_IDLE_HOVER,
+            text_color=PRIMARY if is_selected else SECONDARY,
+            border_color=METHOD_ACTIVE if is_selected else METHOD_IDLE,
+        )
+
+for index, option in enumerate(METHOD_OPTIONS):
+    button = ctk.CTkButton(
+        method_button_row,
+        text=option,
+        height=42,
+        corner_radius=RADIUS_MD,
+        fg_color=METHOD_IDLE,
+        hover_color=METHOD_IDLE_HOVER,
+        text_color=SECONDARY,
+        border_color=METHOD_IDLE,
+        border_width=2,
+        font=ctk.CTkFont(family=BODY_FAMILY, size=14, weight="bold"),
+        command=lambda value=option: set_method(value),
+    )
+    button.grid(row=0, column=index, sticky="ew", padx=(0, SPACE_SM) if index == 0 else (SPACE_SM, 0))
+    method_buttons[option] = button
+
+set_method(DEFAULT_METHOD_LABEL)
+
 button_row = ctk.CTkFrame(input_panel, fg_color=PRIMARY)
 # Added top padding (SPACE_MD) to separate from the input box
-button_row.grid(row=2, column=0, sticky="ew", padx=SPACE_LG, pady=(SPACE_MD, SPACE_LG))
+button_row.grid(row=3, column=0, sticky="ew", padx=SPACE_LG, pady=(0, SPACE_LG))
 button_row.grid_columnconfigure(0, weight=1)
 button_row.grid_columnconfigure(1, weight=0)
 
@@ -521,7 +583,7 @@ def on_resize(event=None):
         left_col.configure(width=body_w, height=int(body_h * 0.5))
         right_col.configure(width=body_w, height=int(body_h * 0.5))
 
-    h_input = int(240 * scale) if target == "wide" else int(210 * scale)
+    h_input = int(320 * scale) if target == "wide" else int(290 * scale)
     h_symbols = int(380 * scale)
     h_answer = int(160 * scale)
     
