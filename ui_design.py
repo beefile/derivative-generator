@@ -63,7 +63,7 @@ font_body = ctk.CTkFont(family=BODY_FAMILY, size=15)
 font_btn = ctk.CTkFont(family=BODY_FAMILY, size=15, weight="bold")
 font_symbol = ctk.CTkFont(family=HEADING_FAMILY, size=13, weight="bold")
 font_trail = ctk.CTkFont(family=BODY_FAMILY, size=16)
-font_output = ctk.CTkFont(family=HEADING_FAMILY, size=18, weight="bold")
+font_output = ctk.CTkFont(family=HEADING_FAMILY, size=14, weight="bold")
 font_meta_label = ctk.CTkFont(family=BODY_FAMILY, size=13, weight="bold")
 font_meta_value = ctk.CTkFont(family=HEADING_FAMILY, size=15, weight="bold")
 
@@ -218,22 +218,22 @@ body.grid_rowconfigure(0, weight=1)
 body.grid_columnconfigure(0, weight=3)
 body.grid_columnconfigure(1, weight=4)
 # Prevent internal content from pushing columns left/right
-body.grid_propagate(False)
+# body.grid_propagate(False) - Removed for responsiveness
 
 left_col = ctk.CTkFrame(body, fg_color="#F0F0F0")
 right_col = ctk.CTkFrame(body, fg_color="#F0F0F0")
 
 # Lock horizontal sizes
-left_col.grid_propagate(False)
-right_col.grid_propagate(False)
+# left_col.grid_propagate(False)
+# right_col.grid_propagate(False) - Removed for responsiveness
 
 left_col.grid(row=0, column=0, sticky="nsew", padx=(0, SPACE_MD))
 right_col.grid(row=0, column=1, sticky="nsew", padx=(SPACE_MD, 0))
 
 left_col.grid_columnconfigure(0, weight=1)
-left_col.grid_rowconfigure(0, weight=0) # Input: Keep compact
-left_col.grid_rowconfigure(1, weight=1) # Symbols: Take extra space
-left_col.grid_rowconfigure(2, weight=0) # Answer: Keep compact
+left_col.grid_rowconfigure(0, weight=0, minsize=200) # Input
+left_col.grid_rowconfigure(1, weight=1, minsize=300) # Symbols
+left_col.grid_rowconfigure(2, weight=0, minsize=80)  # Answer
 
 right_col.grid_columnconfigure(0, weight=1)
 right_col.grid_rowconfigure(0, weight=1)
@@ -242,7 +242,7 @@ right_col.grid_rowconfigure(0, weight=1)
 input_outer, input_panel = make_shadow_panel(left_col)
 input_outer.grid(row=0, column=0, sticky="nsew", pady=(0, SPACE_MD))
 # Prevent internal content from resizing the panel during computation
-input_outer.grid_propagate(False)
+# input_outer.grid_propagate(False) - Removed for true responsiveness
 input_panel.grid_columnconfigure(0, weight=1)
 input_panel.grid_rowconfigure(0, weight=0)  # Header: Fixed
 input_panel.grid_rowconfigure(1, weight=1)  # Input Box: Flexible
@@ -386,7 +386,7 @@ reset_btn.grid(row=0, column=1, sticky="e")
 symbols_outer, symbols_panel = make_shadow_panel(left_col)
 symbols_outer.grid(row=1, column=0, sticky="nsew", pady=(0, SPACE_MD))
 # Prevent internal content from resizing the panel
-symbols_outer.grid_propagate(False)
+# symbols_outer.grid_propagate(False) - Removed for true responsiveness
 symbols_panel.grid_columnconfigure(0, weight=1)
 symbols_panel.grid_rowconfigure(0, weight=0)
 symbols_panel.grid_rowconfigure(1, weight=1)
@@ -408,7 +408,7 @@ max_cols = 4
 for idx in range(max_cols):
     symbols_body.grid_columnconfigure(idx, weight=1)
 for idx in range(4): # 4 rows
-    symbols_body.grid_rowconfigure(idx, weight=1)
+    symbols_body.grid_rowconfigure(idx, weight=1, uniform="sym")
 
 for i, (lbl, val) in enumerate(symbols):
     r = i // max_cols
@@ -427,22 +427,22 @@ for i, (lbl, val) in enumerate(symbols):
         font=font_symbol,
         command=lambda v=val: insert_symbol(v),
     )
-    btn.grid(row=r, column=c, sticky="ew", padx=SPACE_SM, pady=SPACE_SM)
+    btn.grid(row=r, column=c, sticky="ew", padx=SPACE_XS, pady=SPACE_XS)
 
 answer_outer, answer_panel = make_shadow_panel(left_col)
 answer_outer.grid(row=2, column=0, sticky="nsew")
 # Prevent internal content from resizing the panel
-answer_outer.grid_propagate(False)
+# answer_outer.grid_propagate(False) - Removed for true responsiveness
 
 answer_panel.grid_columnconfigure(0, weight=1)
 answer_panel.grid_rowconfigure(0, weight=0)
 answer_panel.grid_rowconfigure(1, weight=1)
 
 answer_header = make_section_header(answer_panel, "Final Answer")
-answer_header.grid(row=0, column=0, sticky="ew", padx=SPACE_LG, pady=(SPACE_LG, SPACE_SM))
+answer_header.grid(row=0, column=0, sticky="ew", padx=SPACE_LG, pady=(SPACE_MD, SPACE_XS))
 
 answer_body = ctk.CTkFrame(answer_panel, fg_color=PRIMARY, corner_radius=0)
-answer_body.grid(row=1, column=0, sticky="nsew", padx=SPACE_LG, pady=(0, SPACE_LG))
+answer_body.grid(row=1, column=0, sticky="nsew", padx=SPACE_LG, pady=(0, SPACE_MD))
 answer_body.grid_columnconfigure(0, weight=1)
 answer_body.grid_rowconfigure(0, weight=1)
 
@@ -453,7 +453,7 @@ final_value = ctk.CTkLabel(
     font=font_output,
     anchor="center",
     justify="center",
-    wraplength=420
+    wraplength=380
 )
 final_value.grid(row=0, column=0, sticky="nsew")
 
@@ -491,7 +491,7 @@ trail_box.configure(state="disabled")
 
 meta_strip = ctk.CTkFrame(trail_panel, fg_color=PRIMARY)
 meta_strip.grid(row=2, column=0, sticky="ew", padx=SPACE_LG, pady=(0, SPACE_LG))
-meta_strip.configure(height=100)
+# meta_strip.configure(height=100) - Removed fixed height to prevent clipping
 
 for col in range(4):
     meta_strip.grid_columnconfigure(col, weight=1)
@@ -564,11 +564,17 @@ def on_resize(event=None):
         apply_layout(target)
     
     # More aggressive dynamic font scaling
-    scale = min(1.0, max(0.45, (height - 200) / 700))
+    scale = min(1.0, max(0.6, (height - 100) / 800))
     font_title.configure(size=int(28 * scale))
-    font_heading.configure(size=int(20 * scale))
-    font_output.configure(size=int(18 * scale))
-    font_trail.configure(size=int(16 * scale))
+    font_heading.configure(size=int(21 * scale))
+    font_body.configure(size=int(16 * scale))
+    font_btn.configure(size=int(16 * scale))
+    font_symbol.configure(size=int(15 * scale))
+    font_output.configure(size=int(14 * scale))
+    font_trail.configure(size=int(17 * scale))
+    font_meta_label.configure(size=int(14 * scale))
+    font_meta_value.configure(size=int(16 * scale))
+
     # Dynamic heights and widths to maintain absolute stability
     body_w = width - (SPACE_XL * 2)
     body_h = height - 110 - (SPACE_LG * 2) # 110 is header height
@@ -583,18 +589,11 @@ def on_resize(event=None):
         left_col.configure(width=body_w, height=int(body_h * 0.5))
         right_col.configure(width=body_w, height=int(body_h * 0.5))
 
-    h_input = int(320 * scale) if target == "wide" else int(290 * scale)
-    h_symbols = int(380 * scale)
-    h_answer = int(160 * scale)
+    # Removed manual height configurations for panels
+    # Let the grid weights handle growth and content handle min size
     
-    input_outer.configure(height=h_input)
-    symbols_outer.configure(height=h_symbols)
-    answer_outer.configure(height=h_answer)
-    
-    # Ensure containers don't shrink/grow when content changes
-    input_outer.grid_propagate(False)
-    symbols_outer.grid_propagate(False)
-    answer_outer.grid_propagate(False)
+    # Ensure containers don't shrink/grow when content changes if needed
+    # (Leaving grid_propagate(True) by default for responsiveness)
     
     # Dynamic wraplength based on actual panel width
     try:
