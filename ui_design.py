@@ -29,6 +29,7 @@ SPACE_XL = 24
 TITLE = "SYMBOLIC: DERIVATIVE GENERATOR (BASIC RULES)"
 PLACEHOLDER = "Enter a function, e.g., 2x^2 - 5x - 3"
 DEFAULT_META = "Runtime: -- | Timestamp: -- | Iterations: -- | Library: SymPy"
+DEFAULT_STATUS = "Warnings and validation messages will appear here"
 METHOD_OPTIONS = ["Rule-Based", "Direct SymPy"]
 DEFAULT_METHOD_LABEL = "Rule-Based"
 
@@ -146,6 +147,7 @@ def clear_input():
     entry.delete(0, "end")
     clear_trail(trail_box)
     final_value.configure(text="Derivative computation will appear here")
+    status_message.configure(text=DEFAULT_STATUS, text_color=MUTED)
     trail_meta.configure(text=DEFAULT_META)
     set_method(DEFAULT_METHOD_LABEL)
     entry.focus_set()
@@ -436,13 +438,25 @@ answer_outer.grid(row=2, column=0, sticky="nsew")
 
 answer_panel.grid_columnconfigure(0, weight=1)
 answer_panel.grid_rowconfigure(0, weight=0)
-answer_panel.grid_rowconfigure(1, weight=1)
+answer_panel.grid_rowconfigure(1, weight=0)
+answer_panel.grid_rowconfigure(2, weight=1)
 
 answer_header = make_section_header(answer_panel, "Final Answer")
 answer_header.grid(row=0, column=0, sticky="ew", padx=SPACE_LG, pady=(SPACE_MD, SPACE_XS))
 
+status_message = ctk.CTkLabel(
+    answer_panel,
+    text=DEFAULT_STATUS,
+    text_color=MUTED,
+    font=font_body,
+    anchor="w",
+    justify="left",
+    wraplength=380,
+)
+status_message.grid(row=1, column=0, sticky="ew", padx=SPACE_LG, pady=(0, SPACE_XS))
+
 answer_body = ctk.CTkFrame(answer_panel, fg_color=PRIMARY, corner_radius=0)
-answer_body.grid(row=1, column=0, sticky="nsew", padx=SPACE_LG, pady=(0, SPACE_MD))
+answer_body.grid(row=2, column=0, sticky="nsew", padx=SPACE_LG, pady=(0, SPACE_MD))
 answer_body.grid_columnconfigure(0, weight=1)
 answer_body.grid_rowconfigure(0, weight=1)
 
@@ -549,6 +563,7 @@ def maintain_answer_wrap(_event=None):
     try:
         width = max(answer_body.winfo_width() - 20, 220)
         final_value.configure(wraplength=width)
+        status_message.configure(wraplength=width)
     except Exception:
         pass
 
