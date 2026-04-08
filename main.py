@@ -102,6 +102,19 @@ def format_expression(expr_obj: sp.Expr) -> str:
 
 
 def normalize_input(expr: str) -> str:
+    # Normalize known functions and constants only (case-insensitive)
+    # This preserves variable case (e.g., x vs X) for academic correctness
+    expr = re.sub(r"\bSIN\b", "sin", expr, flags=re.IGNORECASE)
+    expr = re.sub(r"\bCOS\b", "cos", expr, flags=re.IGNORECASE)
+    expr = re.sub(r"\bTAN\b", "tan", expr, flags=re.IGNORECASE)
+    expr = re.sub(r"\bSEC\b", "sec", expr, flags=re.IGNORECASE)
+    expr = re.sub(r"\bLOG\b", "log", expr, flags=re.IGNORECASE)
+    expr = re.sub(r"\bLN\b", "ln", expr, flags=re.IGNORECASE)
+    expr = re.sub(r"\bEXP\b", "exp", expr, flags=re.IGNORECASE)
+    expr = re.sub(r"\bSQRT\b", "sqrt", expr, flags=re.IGNORECASE)
+    expr = re.sub(r"\bPI\b", "pi", expr, flags=re.IGNORECASE)
+    expr = re.sub(r"\bE\b", "e", expr, flags=re.IGNORECASE)
+
     replacements = {
         "^": "**",
         "\u00d7": "*",
@@ -112,7 +125,7 @@ def normalize_input(expr: str) -> str:
         "ÃƒÂ·": "/",
         "Ã¢Ë†â€™": "-",
         "Ã¢â‚¬â€œ": "-",
-        "Ã¢â‚¬â€": "-",
+        "Ã¢â‚¬â€ ": "-",
     }
     for old, new in replacements.items():
         expr = expr.replace(old, new)
