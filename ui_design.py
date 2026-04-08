@@ -2,6 +2,7 @@ import customtkinter as ctk
 from tkinter import font as tkfont
 
 from trail_logger import clear_trail
+from about_popup import show_about_popup
 
 # ---------------------- DESIGN SYSTEM ----------------------
 PRIMARY = "#FFFFFF"
@@ -212,6 +213,24 @@ ctk.CTkLabel(
     font=font_title,
     text_color=PRIMARY
 ).grid(row=0, column=1)
+
+# Info button (top-right) — opens about popup
+info_btn = ctk.CTkButton(
+    header_inner,
+    text="𝒾",
+    width=36,
+    height=36,
+    corner_radius=18,  # makes it circular
+    fg_color="transparent",  # outline-only button
+    hover_color=METHOD_IDLE_HOVER,
+    text_color=PRIMARY,
+    border_width=2,
+    border_color=PRIMARY,
+    font=ctk.CTkFont(family=HEADING_FAMILY, size=18, weight="bold", slant="italic"),
+    command=lambda: show_about_popup(app, font_title=font_heading, font_body=font_body, heading_family=HEADING_FAMILY)
+)
+
+info_btn.grid(row=0, column=2, sticky="e", padx=(0, 10))
 
 # ---------------------- MAIN BODY ----------------------
 body = ctk.CTkFrame(root, fg_color="#F0F0F0")
@@ -624,4 +643,4 @@ apply_layout("wide")
 
 # ---------------------- INITIAL STATE ----------------------
 entry.focus_set()
-maintain_answer_wrap()	
+maintain_answer_wrap()
