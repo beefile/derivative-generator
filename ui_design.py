@@ -30,7 +30,7 @@ SPACE_XL = 24
 TITLE = "SYMBOLIC: DERIVATIVE GENERATOR (BASIC RULES)"
 PLACEHOLDER = "Enter a function, e.g., 2x^2 - 5x - 3"
 DEFAULT_META = "Runtime: -- | Timestamp: -- | Iterations: -- | Library: SymPy"
-DEFAULT_STATUS = "Warnings and validation messages will appear here"
+DEFAULT_STATUS = ""
 METHOD_OPTIONS = ["Rule-Based", "Direct SymPy"]
 DEFAULT_METHOD_LABEL = "Rule-Based"
 
@@ -65,7 +65,7 @@ font_body = ctk.CTkFont(family=BODY_FAMILY, size=15)
 font_btn = ctk.CTkFont(family=BODY_FAMILY, size=15, weight="bold")
 font_symbol = ctk.CTkFont(family=HEADING_FAMILY, size=13, weight="bold")
 font_trail = ctk.CTkFont(family=BODY_FAMILY, size=16)
-font_output = ctk.CTkFont(family=HEADING_FAMILY, size=14, weight="bold")
+font_output = ctk.CTkFont(family=HEADING_FAMILY, size=26, weight="bold")
 font_meta_label = ctk.CTkFont(family=BODY_FAMILY, size=13, weight="bold")
 font_meta_value = ctk.CTkFont(family=HEADING_FAMILY, size=15, weight="bold")
 
@@ -148,7 +148,7 @@ def clear_input():
     entry.delete(0, "end")
     clear_trail(trail_box)
     final_value.configure(text="Derivative computation will appear here")
-    status_message.configure(text=DEFAULT_STATUS, text_color=MUTED)
+    set_status_message(DEFAULT_STATUS, MUTED)
     trail_meta.configure(text=DEFAULT_META)
     set_method(DEFAULT_METHOD_LABEL)
     entry.focus_set()
@@ -474,6 +474,13 @@ status_message = ctk.CTkLabel(
 )
 status_message.grid(row=1, column=0, sticky="ew", padx=SPACE_LG, pady=(0, SPACE_XS))
 
+def set_status_message(text: str, text_color: str = MUTED):
+    status_message.configure(text=text, text_color=text_color)
+    if text.strip():
+        status_message.grid()
+    else:
+        status_message.grid_remove()
+
 answer_body = ctk.CTkFrame(answer_panel, fg_color=PRIMARY, corner_radius=0)
 answer_body.grid(row=2, column=0, sticky="nsew", padx=SPACE_LG, pady=(0, SPACE_MD))
 answer_body.grid_columnconfigure(0, weight=1)
@@ -489,6 +496,7 @@ final_value = ctk.CTkLabel(
     wraplength=380
 )
 final_value.grid(row=0, column=0, sticky="nsew")
+set_status_message(DEFAULT_STATUS, MUTED)
 
 # ---------------------- SOLUTION TRAIL PANEL ----------------------
 trail_outer, trail_panel = make_shadow_panel(right_col)
@@ -604,7 +612,7 @@ def on_resize(event=None):
     font_body.configure(size=int(16 * scale))
     font_btn.configure(size=int(16 * scale))
     font_symbol.configure(size=int(15 * scale))
-    font_output.configure(size=int(14 * scale))
+    font_output.configure(size=max(20, int(26 * scale)))
     font_trail.configure(size=int(17 * scale))
     font_meta_label.configure(size=int(14 * scale))
     font_meta_value.configure(size=int(16 * scale))

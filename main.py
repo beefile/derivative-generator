@@ -14,8 +14,6 @@ from sympy.parsing.sympy_parser import (
 
 from trail_logger import clear_trail
 from ui_design import (
-    DEFAULT_METHOD_LABEL,
-    METHOD_OPTIONS,
     app,
     compute_btn,
     entry,
@@ -54,12 +52,39 @@ METHOD_LABELS = {
 METHOD_KEYS_BY_LABEL = {label: key for key, label in METHOD_LABELS.items()}
 DEFAULT_METHOD_KEY = "rule_based"
 
+NUMERIC_SAMPLE_POINTS = (-3.0, -2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0, 3.0)
+NUMERIC_SAMPLE_LIMIT = 3
+NUMERIC_BACKCHECK_STEP = 1e-5
+NUMERIC_BACKCHECK_TOLERANCE = 1e-4
+
 
 # ---------------------- DATA STRUCTURES ----------------------
 @dataclass
 class Step:
     text: str
     rule: str
+
+
+@dataclass
+class VerificationSample:
+    x_value: float
+    computed_value: float
+    finite_difference_value: float
+    residual: float
+    tolerance: float
+    passed: bool
+
+
+@dataclass
+class VerificationResult:
+    reference_derivative: Optional[sp.Expr] = None
+    difference_expr: Optional[sp.Expr] = None
+    symbolic_passed: bool = False
+    numeric_samples: List[VerificationSample] = field(default_factory=list)
+    numeric_check_ran: bool = False
+    numeric_passed: bool = False
+    overall_passed: bool = False
+    status_text: str = "NOT RUN"
 
 
 @dataclass
@@ -78,6 +103,7 @@ class DerivativeResult:
     variable: Optional[sp.Symbol] = None
     is_constant: bool = False
     rules_used: Set[str] = field(default_factory=set)
+    verification: VerificationResult = field(default_factory=VerificationResult)
 
 
 # ---------------------- INPUT HANDLING ----------------------
@@ -90,12 +116,12 @@ def format_expression(expr_obj: sp.Expr) -> str:
 def normalize_input(expr: str) -> str:
     replacements = {
         "^": "**",
-        "Ã—": "*",
-        "Â·": "*",
-        "Ã·": "/",
-        "âˆ’": "-",
-        "â€“": "-",
-        "â€”": "-",
+        "Ãƒâ€”": "*",
+        "Ã‚Â·": "*",
+        "ÃƒÂ·": "/",
+        "Ã¢Ë†â€™": "-",
+        "Ã¢â‚¬â€œ": "-",
+        "Ã¢â‚¬â€": "-",
     }
     for old, new in replacements.items():
         expr = expr.replace(old, new)
@@ -323,6 +349,97 @@ def differentiate_direct_sympy(expr: sp.Expr, var: sp.Symbol) -> Tuple[sp.Expr, 
     return derivative, steps, {"Direct SymPy"}
 
 
+# ---------------------- VERIFICATION ----------------------
+def _safe_real_eval(expr: sp.Expr, var: sp.Symbol, value: float) -> Optional[float]:
+    try:
+        evaluated = sp.N(expr.subs(var, value), 16)
+    except Exception:
+        return None
+
+    if getattr(evaluated, "has", lambda *_: False)(sp.zoo, sp.oo, -sp.oo, sp.nan):
+        return None
+
+    try:
+        real_part, imag_part = evaluated.as_real_imag()
+        real_float = float(real_part)
+        imag_float = float(imag_part)
+    except (TypeError, ValueError):
+        return None
+
+    if not (real_float == real_float and imag_float == imag_float):
+        return None
+
+    if abs(imag_float) > 1e-8:
+        return None
+
+    if abs(real_float) == float("inf"):
+        return None
+
+    return real_float
+
+
+def build_verification_report(
+    parsed_expr: sp.Expr,
+    derivative: sp.Expr,
+    var: sp.Symbol,
+) -> VerificationResult:
+    reference_derivative = sp.simplify(sp.diff(parsed_expr, var))
+    difference_expr = sp.simplify(derivative - reference_derivative)
+    symbolic_passed = difference_expr == 0
+
+    numeric_samples: List[VerificationSample] = []
+
+    for x_value in NUMERIC_SAMPLE_POINTS:
+        computed_value = _safe_real_eval(derivative, var, x_value)
+        f_plus = _safe_real_eval(parsed_expr, var, x_value + NUMERIC_BACKCHECK_STEP)
+        f_minus = _safe_real_eval(parsed_expr, var, x_value - NUMERIC_BACKCHECK_STEP)
+
+        if computed_value is None or f_plus is None or f_minus is None:
+            continue
+
+        finite_difference_value = (f_plus - f_minus) / (2 * NUMERIC_BACKCHECK_STEP)
+        residual = abs(computed_value - finite_difference_value)
+        tolerance = max(
+            NUMERIC_BACKCHECK_TOLERANCE,
+            NUMERIC_BACKCHECK_TOLERANCE * max(abs(computed_value), abs(finite_difference_value), 1.0),
+        )
+        numeric_samples.append(
+            VerificationSample(
+                x_value=x_value,
+                computed_value=computed_value,
+                finite_difference_value=finite_difference_value,
+                residual=residual,
+                tolerance=tolerance,
+                passed=residual <= tolerance,
+            )
+        )
+
+        if len(numeric_samples) >= NUMERIC_SAMPLE_LIMIT:
+            break
+
+    numeric_check_ran = bool(numeric_samples)
+    numeric_passed = numeric_check_ran and all(sample.passed for sample in numeric_samples)
+    overall_passed = symbolic_passed and (numeric_passed if numeric_check_ran else True)
+
+    if overall_passed:
+        status_text = "PASSED"
+    elif symbolic_passed and not numeric_check_ran:
+        status_text = "PASSED (symbolic only)"
+    else:
+        status_text = "FAILED"
+
+    return VerificationResult(
+        reference_derivative=reference_derivative,
+        difference_expr=difference_expr,
+        symbolic_passed=symbolic_passed,
+        numeric_samples=numeric_samples,
+        numeric_check_ran=numeric_check_ran,
+        numeric_passed=numeric_passed,
+        overall_passed=overall_passed,
+        status_text=status_text,
+    )
+
+
 def _build_success_lines(
     user_expr: str,
     parsed_expr: sp.Expr,
@@ -334,10 +451,9 @@ def _build_success_lines(
     is_constant: bool,
     runtime_s: float,
     timestamp_str: str,
+    verification: VerificationResult,
 ) -> Tuple[List[str], int]:
     var_str = str(var)
-    sympy_derivative = sp.simplify(sp.diff(parsed_expr, var))
-    difference_expr = sp.simplify(derivative - sympy_derivative)
 
     lines: List[str] = []
     lines.append("GIVEN:")
@@ -365,17 +481,29 @@ def _build_success_lines(
     lines.append("")
     lines.append("VERIFICATION:")
     lines.append(
-        f"1. SymPy derivative: d/d{var_str}({format_expression(parsed_expr)}) = {format_expression(sympy_derivative)}"
+        f"1. SymPy reference derivative: d/d{var_str}({format_expression(parsed_expr)}) = {format_expression(verification.reference_derivative)}"
     )
     lines.append(
-        f"2. Difference: ({format_expression(derivative)}) - ({format_expression(sympy_derivative)}) = {format_expression(difference_expr)}"
+        f"2. Symbolic difference: ({format_expression(derivative)}) - ({format_expression(verification.reference_derivative)}) = {format_expression(verification.difference_expr)}"
     )
-    lines.append("True" if difference_expr == 0 else "False")
+    lines.append(f"3. Symbolic equivalence check: {'PASSED' if verification.symbolic_passed else 'FAILED'}")
+    lines.append("4. Numeric back-check (central difference):")
+    if verification.numeric_samples:
+        for sample in verification.numeric_samples:
+            lines.append(
+                "   "
+                + f"x = {sample.x_value:.4f} | computed = {sample.computed_value:.6f} | approx = {sample.finite_difference_value:.6f} | residual = {sample.residual:.2e} | {'PASSED' if sample.passed else 'FAILED'}"
+            )
+        lines.append(f"   Numeric back-check summary: {'PASSED' if verification.numeric_passed else 'FAILED'}")
+    else:
+        lines.append("   Numeric back-check skipped: no safe real sample points were found.")
+    lines.append(f"5. Overall verification: {verification.status_text}")
     lines.append("")
     lines.append("SUMMARY:")
     lines.append(f"Method used: {method_label}")
     if rules_used:
         lines.append("Rules used: " + ", ".join(sorted(rules_used)))
+    lines.append(f"Verification: {verification.status_text}")
     iterations = len(steps) + 1
     lines.append(f"Runtime: {runtime_s:.3f}s")
     lines.append(f"Timestamp: {timestamp_str}")
@@ -406,8 +534,13 @@ def _build_error_result(
             "",
             "COMPLETION:",
             f"Stopped: {message}",
+            "",
+            "VERIFICATION:",
+            "Not executed because derivative computation did not complete.",
+            "Overall verification: NOT AVAILABLE",
         ],
         final_answer_text="Error in input",
+        verification=VerificationResult(status_text="NOT AVAILABLE"),
     )
 
 
@@ -446,6 +579,7 @@ def compute_derivative_report(
     else:
         derivative, steps, rules_used = differentiate_with_steps(parsed_expr, var)
 
+    verification = build_verification_report(parsed_expr, derivative, var)
     runtime_s = time.time() - start_time
     method_label = METHOD_LABELS[method_key]
     lines, iterations = _build_success_lines(
@@ -459,6 +593,7 @@ def compute_derivative_report(
         is_constant=is_constant,
         runtime_s=runtime_s,
         timestamp_str=timestamp_str,
+        verification=verification,
     )
 
     return DerivativeResult(
@@ -476,6 +611,7 @@ def compute_derivative_report(
         variable=var,
         is_constant=is_constant,
         rules_used=rules_used,
+        verification=verification,
     )
 
 
