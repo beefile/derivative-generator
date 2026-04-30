@@ -1,5 +1,8 @@
+import os
 import re
 import time
+import tkinter as tk
+from tkinter import filedialog, messagebox
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional, Set, Tuple
@@ -17,6 +20,7 @@ from ui_design import (
     app,
     compute_btn,
     entry,
+    export_btn,
     final_value,
     method_var,
     trail_box,
@@ -51,6 +55,45 @@ METHOD_LABELS = {
 }
 METHOD_KEYS_BY_LABEL = {label: key for key, label in METHOD_LABELS.items()}
 DEFAULT_METHOD_KEY = "rule_based"
+
+last_result: Optional["DerivativeResult"] = None
+
+# ---------------------- EXPORT FUNCTIONALITY ----------------------
+def export_report():
+    if not last_result or not last_result.success:
+        messagebox.showinfo("Export", "No successful computation to export.")
+        return
+    
+    content = []
+    content.append("=" * 60)
+    content.append("SYMBOLIC DERIVATIVE REPORT")
+    content.append("=" * 60)
+    content.append(f"Timestamp: {last_result.timestamp}")
+    content.append(f"Method: {last_result.method_label}")
+    content.append(f"Runtime: {last_result.runtime_s:.3f}s")
+    content.append("=" * 60)
+    content.append("")
+    
+    content.extend(last_result.lines)
+    
+    content.append("")
+    content.append("=" * 60)
+    content.append("End of Report")
+    content.append("=" * 60)
+    
+    file_path = filedialog.asksaveasfilename(
+        defaultextension=".txt",
+        filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")],
+        title="Export Solution Trail"
+    )
+    
+    if file_path:
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(content))
+            messagebox.showinfo("Export Successful", f"Report successfully exported to:\n{file_path}")
+        except Exception as e:
+            messagebox.showerror("Export Failed", f"Failed to write file:\n{e}")
 
 NUMERIC_SAMPLE_POINTS = (-3.0, -2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0, 3.0)
 NUMERIC_SAMPLE_LIMIT = 3
@@ -656,7 +699,9 @@ def type_trail_lines(
 
 # ---------------------- COMPUTE BUTTON BACKEND ----------------------
 def start_validation():
+    global last_result
     compute_btn.configure(state="disabled")
+    export_btn.configure(state="disabled")
     clear_trail(trail_box)
     final_value.configure(text="Computing...")
     _set_meta(None, None, None)
@@ -664,6 +709,8 @@ def start_validation():
     method_label = method_var.get()
     method_key = METHOD_KEYS_BY_LABEL.get(method_label, DEFAULT_METHOD_KEY)
     result = compute_derivative_report(entry.get(), method_key)
+    
+    last_result = result
 
     if not result.success:
         trail_box.configure(state="normal")
@@ -684,6 +731,7 @@ def start_validation():
         final_value.configure(text=result.final_answer_text)
         _set_meta(result.runtime_s, result.timestamp, result.iterations)
         compute_btn.configure(state="normal")
+        export_btn.configure(state="normal")
 
     trail_box.after(
         700,
@@ -700,6 +748,7 @@ def start_validation():
 
 # ---------------------- LINK BACKEND TO BUTTON ----------------------
 compute_btn.configure(command=start_validation)
+export_btn.configure(command=export_report)
 
 
 # ---------------------- RUN APP ----------------------

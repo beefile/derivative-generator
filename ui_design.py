@@ -152,6 +152,10 @@ def clear_input():
     trail_meta.configure(text=DEFAULT_META)
     set_method(DEFAULT_METHOD_LABEL)
     entry.focus_set()
+    try:
+        export_btn.configure(state="disabled")
+    except NameError:
+        pass
 
 def apply_meta_to_chips(text: str):
     parts = [p.strip() for p in text.split("|")]
@@ -506,8 +510,29 @@ trail_panel.grid_rowconfigure(0, weight=0)
 trail_panel.grid_rowconfigure(1, weight=1)
 trail_panel.grid_rowconfigure(2, weight=0)
 
-trail_header = make_section_header(trail_panel, "Solution Trail", "Scrollable derivation log")
-trail_header.grid(row=0, column=0, sticky="ew", padx=SPACE_LG, pady=(SPACE_LG, SPACE_SM))
+trail_top_bar = ctk.CTkFrame(trail_panel, fg_color="transparent")
+trail_top_bar.grid(row=0, column=0, sticky="ew", padx=SPACE_LG, pady=(SPACE_LG, SPACE_SM))
+trail_top_bar.grid_columnconfigure(0, weight=1)
+
+trail_header = make_section_header(trail_top_bar, "Solution Trail", "Scrollable derivation log")
+trail_header.grid(row=0, column=0, sticky="w")
+
+export_btn = ctk.CTkButton(
+    trail_top_bar,
+    text="Export TXT",
+    width=100,
+    height=36,
+    corner_radius=RADIUS_MD,
+    fg_color=PRIMARY,
+    hover_color=SOFT_BG,
+    border_color=SECONDARY,
+    border_width=2,
+    text_color=SECONDARY,
+    font=font_btn,
+    command=lambda: None
+)
+export_btn.grid(row=0, column=1, sticky="e")
+export_btn.configure(state="disabled")
 
 trail_body = ctk.CTkFrame(
     trail_panel,
