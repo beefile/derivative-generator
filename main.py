@@ -1,5 +1,8 @@
+import os
 import re
 import time
+import tkinter as tk
+from tkinter import filedialog, messagebox
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional, Set, Tuple
@@ -17,16 +20,15 @@ from ui_design import (
     app,
     compute_btn,
     entry,
+    export_btn,
     final_value,
     method_var,
-    status_message,
     trail_box,
     trail_meta,
 )
 
 # ---------------------- PARSER SETUP ----------------------
 default_var = sp.symbols("x")
-MAX_INPUT_LENGTH = 250
 
 TRANSFORMATIONS = standard_transformations + (
     convert_xor,
@@ -54,18 +56,49 @@ METHOD_LABELS = {
 METHOD_KEYS_BY_LABEL = {label: key for key, label in METHOD_LABELS.items()}
 DEFAULT_METHOD_KEY = "rule_based"
 
-EDGE_CASES = [
-    "Empty input",
-    "Invalid syntax or malformed expressions",
-    "Expressions with more than one variable",
-    "Constant-only expressions",
-    "Expressions using a variable other than x",
-    "Expressions with denominators that can become zero",
-    "Expressions containing log/ln domain restrictions",
-    "Expressions containing sqrt domain restrictions",
-    "Inputs with special math characters that need normalization",
-    "Unexpected internal errors during computation",
-]
+last_result: Optional["DerivativeResult"] = None
+
+# ---------------------- EXPORT FUNCTIONALITY ----------------------
+def export_report():
+    if not last_result or not last_result.success:
+        messagebox.showinfo("Export", "No successful computation to export.")
+        return
+    
+    content = []
+    content.append("=" * 60)
+    content.append("SYMBOLIC DERIVATIVE REPORT")
+    content.append("=" * 60)
+    content.append(f"Timestamp: {last_result.timestamp}")
+    content.append(f"Method: {last_result.method_label}")
+    content.append(f"Runtime: {last_result.runtime_s:.3f}s")
+    content.append("=" * 60)
+    content.append("")
+    
+    content.extend(last_result.lines)
+    
+    content.append("")
+    content.append("=" * 60)
+    content.append("End of Report")
+    content.append("=" * 60)
+    
+    file_path = filedialog.asksaveasfilename(
+        defaultextension=".txt",
+        filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")],
+        title="Export Solution Trail"
+    )
+    
+    if file_path:
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(content))
+            messagebox.showinfo("Export Successful", f"Report successfully exported to:\n{file_path}")
+        except Exception as e:
+            messagebox.showerror("Export Failed", f"Failed to write file:\n{e}")
+
+NUMERIC_SAMPLE_POINTS = (-3.0, -2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0, 3.0)
+NUMERIC_SAMPLE_LIMIT = 3
+NUMERIC_BACKCHECK_STEP = 1e-5
+NUMERIC_BACKCHECK_TOLERANCE = 1e-4
 
 
 # ---------------------- DATA STRUCTURES ----------------------
@@ -73,6 +106,28 @@ EDGE_CASES = [
 class Step:
     text: str
     rule: str
+
+
+@dataclass
+class VerificationSample:
+    x_value: float
+    computed_value: float
+    finite_difference_value: float
+    residual: float
+    tolerance: float
+    passed: bool
+
+
+@dataclass
+class VerificationResult:
+    reference_derivative: Optional[sp.Expr] = None
+    difference_expr: Optional[sp.Expr] = None
+    symbolic_passed: bool = False
+    numeric_samples: List[VerificationSample] = field(default_factory=list)
+    numeric_check_ran: bool = False
+    numeric_passed: bool = False
+    overall_passed: bool = False
+    status_text: str = "NOT RUN"
 
 
 @dataclass
@@ -91,7 +146,7 @@ class DerivativeResult:
     variable: Optional[sp.Symbol] = None
     is_constant: bool = False
     rules_used: Set[str] = field(default_factory=set)
-    warnings: List[str] = field(default_factory=list)
+    verification: VerificationResult = field(default_factory=VerificationResult)
 
 
 # ---------------------- INPUT HANDLING ----------------------
@@ -117,9 +172,6 @@ def normalize_input(expr: str) -> str:
 
     replacements = {
         "^": "**",
-        "\u00d7": "*",
-        "\u00f7": "/",
-        "\u2212": "-",
         "Ãƒâ€”": "*",
         "Ã‚Â·": "*",
         "ÃƒÂ·": "/",
@@ -137,13 +189,6 @@ def validate_input(expr: str) -> Tuple[bool, str, Optional[sp.Expr]]:
     if not expr:
         return False, "Expression cannot be empty", None
 
-    if len(expr) > MAX_INPUT_LENGTH:
-        return (
-            False,
-            f"Expression is too long. Please keep it under {MAX_INPUT_LENGTH} characters.",
-            None,
-        )
-
     normalized = normalize_input(expr)
     try:
         parsed = parse_expr(
@@ -156,9 +201,6 @@ def validate_input(expr: str) -> Tuple[bool, str, Optional[sp.Expr]]:
         return False, "Unable to parse expression: invalid syntax", None
     except Exception:
         return False, "Unable to parse expression: invalid syntax", None
-
-    if parsed.has(sp.zoo, sp.oo, sp.nan) or parsed in {sp.zoo, sp.oo, -sp.oo, sp.nan}:
-        return False, "Expression becomes undefined or infinite", None
 
     invalid_symbols = sorted(
         symbol.name for symbol in parsed.free_symbols if not re.fullmatch(r"[A-Za-z]+", symbol.name)
@@ -178,61 +220,6 @@ def _set_meta(runtime_s=None, timestamp=None, iterations=None):
     trail_meta.configure(
         text=f"Runtime: {runtime_text} | Timestamp: {timestamp_text} | Iterations: {iterations_text} | Library: {LIBRARY_NAME}"
     )
-
-
-def _set_status(text: str, tone: str = "neutral"):
-    color_map = {
-        "neutral": "#444444",
-        "success": "#14532d",
-        "warning": "#9a3412",
-        "error": "#b91c1c",
-    }
-    status_message.configure(text=text, text_color=color_map.get(tone, color_map["neutral"]))
-
-
-def _contains_square_root(expr: sp.Expr) -> bool:
-    return any(
-        isinstance(node, sp.Pow) and node.exp == sp.Rational(1, 2)
-        for node in sp.preorder_traversal(expr)
-    )
-
-
-def _uses_general_power_case(expr: sp.Expr, var: sp.Symbol) -> bool:
-    return any(
-        node.is_Pow
-        and (node.base.has(var) or node.exp.has(var))
-        and not (node.base == var and node.exp.is_number)
-        and not (node.base == sp.E)
-        for node in sp.preorder_traversal(expr)
-    )
-
-
-def _collect_edge_case_warnings(
-    original_expr: str,
-    normalized_expr: str,
-    parsed_expr: sp.Expr,
-    var: sp.Symbol,
-    is_constant: bool,
-) -> List[str]:
-    warnings: List[str] = []
-    if original_expr.strip() != normalized_expr:
-        warnings.append("Input contained special math characters and was normalized before parsing.")
-    if is_constant:
-        warnings.append("Constant expression detected. The derivative is 0.")
-    if str(var) != "x":
-        warnings.append(f"Detected variable '{var}'. The derivative was taken with respect to {var}.")
-
-    _, denominator = sp.together(parsed_expr).as_numer_denom()
-    if denominator != 1:
-        warnings.append("Expression contains a denominator and is undefined where that denominator equals 0.")
-    if parsed_expr.has(sp.log):
-        warnings.append("log/ln terms are only defined for positive inputs in the real-number domain.")
-    if _contains_square_root(parsed_expr):
-        warnings.append("sqrt terms are only defined for nonnegative inputs in the real-number domain.")
-    if _uses_general_power_case(parsed_expr, var):
-        warnings.append("General power forms may assume a positive base in the real-number domain.")
-
-    return warnings
 
 
 # ---------------------- DIFFERENTIATION LOGIC ----------------------
@@ -418,6 +405,97 @@ def differentiate_direct_sympy(expr: sp.Expr, var: sp.Symbol) -> Tuple[sp.Expr, 
     return derivative, steps, {"Direct SymPy"}
 
 
+# ---------------------- VERIFICATION ----------------------
+def _safe_real_eval(expr: sp.Expr, var: sp.Symbol, value: float) -> Optional[float]:
+    try:
+        evaluated = sp.N(expr.subs(var, value), 16)
+    except Exception:
+        return None
+
+    if getattr(evaluated, "has", lambda *_: False)(sp.zoo, sp.oo, -sp.oo, sp.nan):
+        return None
+
+    try:
+        real_part, imag_part = evaluated.as_real_imag()
+        real_float = float(real_part)
+        imag_float = float(imag_part)
+    except (TypeError, ValueError):
+        return None
+
+    if not (real_float == real_float and imag_float == imag_float):
+        return None
+
+    if abs(imag_float) > 1e-8:
+        return None
+
+    if abs(real_float) == float("inf"):
+        return None
+
+    return real_float
+
+
+def build_verification_report(
+    parsed_expr: sp.Expr,
+    derivative: sp.Expr,
+    var: sp.Symbol,
+) -> VerificationResult:
+    reference_derivative = sp.simplify(sp.diff(parsed_expr, var))
+    difference_expr = sp.simplify(derivative - reference_derivative)
+    symbolic_passed = difference_expr == 0
+
+    numeric_samples: List[VerificationSample] = []
+
+    for x_value in NUMERIC_SAMPLE_POINTS:
+        computed_value = _safe_real_eval(derivative, var, x_value)
+        f_plus = _safe_real_eval(parsed_expr, var, x_value + NUMERIC_BACKCHECK_STEP)
+        f_minus = _safe_real_eval(parsed_expr, var, x_value - NUMERIC_BACKCHECK_STEP)
+
+        if computed_value is None or f_plus is None or f_minus is None:
+            continue
+
+        finite_difference_value = (f_plus - f_minus) / (2 * NUMERIC_BACKCHECK_STEP)
+        residual = abs(computed_value - finite_difference_value)
+        tolerance = max(
+            NUMERIC_BACKCHECK_TOLERANCE,
+            NUMERIC_BACKCHECK_TOLERANCE * max(abs(computed_value), abs(finite_difference_value), 1.0),
+        )
+        numeric_samples.append(
+            VerificationSample(
+                x_value=x_value,
+                computed_value=computed_value,
+                finite_difference_value=finite_difference_value,
+                residual=residual,
+                tolerance=tolerance,
+                passed=residual <= tolerance,
+            )
+        )
+
+        if len(numeric_samples) >= NUMERIC_SAMPLE_LIMIT:
+            break
+
+    numeric_check_ran = bool(numeric_samples)
+    numeric_passed = numeric_check_ran and all(sample.passed for sample in numeric_samples)
+    overall_passed = symbolic_passed and (numeric_passed if numeric_check_ran else True)
+
+    if overall_passed:
+        status_text = "PASSED"
+    elif symbolic_passed and not numeric_check_ran:
+        status_text = "PASSED (symbolic only)"
+    else:
+        status_text = "FAILED"
+
+    return VerificationResult(
+        reference_derivative=reference_derivative,
+        difference_expr=difference_expr,
+        symbolic_passed=symbolic_passed,
+        numeric_samples=numeric_samples,
+        numeric_check_ran=numeric_check_ran,
+        numeric_passed=numeric_passed,
+        overall_passed=overall_passed,
+        status_text=status_text,
+    )
+
+
 def _build_success_lines(
     user_expr: str,
     parsed_expr: sp.Expr,
@@ -429,11 +507,9 @@ def _build_success_lines(
     is_constant: bool,
     runtime_s: float,
     timestamp_str: str,
-    warnings: List[str],
+    verification: VerificationResult,
 ) -> Tuple[List[str], int]:
     var_str = str(var)
-    sympy_derivative = sp.simplify(sp.diff(parsed_expr, var))
-    difference_expr = sp.simplify(derivative - sympy_derivative)
 
     lines: List[str] = []
     lines.append("GIVEN:")
@@ -445,11 +521,6 @@ def _build_success_lines(
     lines.append("METHOD:")
     lines.append(method_label)
     lines.append("")
-    if warnings:
-        lines.append("WARNINGS:")
-        for warning in warnings:
-            lines.append(f"[WARNING] {warning}")
-        lines.append("")
     lines.append("STEPS:")
     lines.append(f"1. Apply derivative operator: d/d{var_str}({format_expression(parsed_expr)})")
     for idx, step in enumerate(steps, start=2):
@@ -466,18 +537,29 @@ def _build_success_lines(
     lines.append("")
     lines.append("VERIFICATION:")
     lines.append(
-        f"1. SymPy derivative: d/d{var_str}({format_expression(parsed_expr)}) = {format_expression(sympy_derivative)}"
+        f"1. SymPy reference derivative: d/d{var_str}({format_expression(parsed_expr)}) = {format_expression(verification.reference_derivative)}"
     )
     lines.append(
-        f"2. Difference: ({format_expression(derivative)}) - ({format_expression(sympy_derivative)}) = {format_expression(difference_expr)}"
+        f"2. Symbolic difference: ({format_expression(derivative)}) - ({format_expression(verification.reference_derivative)}) = {format_expression(verification.difference_expr)}"
     )
-    lines.append("True" if difference_expr == 0 else "False")
+    lines.append(f"3. Symbolic equivalence check: {'PASSED' if verification.symbolic_passed else 'FAILED'}")
+    lines.append("4. Numeric back-check (central difference):")
+    if verification.numeric_samples:
+        for sample in verification.numeric_samples:
+            lines.append(
+                "   "
+                + f"x = {sample.x_value:.4f} | computed = {sample.computed_value:.6f} | approx = {sample.finite_difference_value:.6f} | residual = {sample.residual:.2e} | {'PASSED' if sample.passed else 'FAILED'}"
+            )
+        lines.append(f"   Numeric back-check summary: {'PASSED' if verification.numeric_passed else 'FAILED'}")
+    else:
+        lines.append("   Numeric back-check skipped: no safe real sample points were found.")
+    lines.append(f"5. Overall verification: {verification.status_text}")
     lines.append("")
     lines.append("SUMMARY:")
     lines.append(f"Method used: {method_label}")
     if rules_used:
         lines.append("Rules used: " + ", ".join(sorted(rules_used)))
-    lines.append("Edge cases covered: " + ", ".join(EDGE_CASES[:5]) + ", ...")
+    lines.append(f"Verification: {verification.status_text}")
     iterations = len(steps) + 1
     lines.append(f"Runtime: {runtime_s:.3f}s")
     lines.append(f"Timestamp: {timestamp_str}")
@@ -506,25 +588,16 @@ def _build_error_result(
             "METHOD:",
             method_label,
             "",
-            "WARNINGS:",
-            f"[ERROR] {message}",
-            "",
             "COMPLETION:",
             f"Stopped: {message}",
+            "",
+            "VERIFICATION:",
+            "Not executed because derivative computation did not complete.",
+            "Overall verification: NOT AVAILABLE",
         ],
-        final_answer_text=message,
-        warnings=[message],
+        final_answer_text="Error in input",
+        verification=VerificationResult(status_text="NOT AVAILABLE"),
     )
-
-
-def build_unexpected_error_result(
-    method_key: str = DEFAULT_METHOD_KEY,
-    now: Optional[datetime] = None,
-    message: str = "Unexpected error during derivative computation",
-) -> DerivativeResult:
-    timestamp_dt = now or datetime.now()
-    timestamp_str = timestamp_dt.strftime("%Y-%m-%d %H:%M:%S")
-    return _build_error_result(message, method_key, 0.0, timestamp_str)
 
 
 def compute_derivative_report(
@@ -536,7 +609,6 @@ def compute_derivative_report(
     timestamp_dt = now or datetime.now()
     timestamp_str = timestamp_dt.strftime("%Y-%m-%d %H:%M:%S")
     start_time = time.time()
-    normalized_expr = normalize_input(user_expr)
 
     success, message, parsed_expr = validate_input(user_expr)
     if not success:
@@ -558,19 +630,12 @@ def compute_derivative_report(
         var = sorted(list(free_symbols), key=lambda symbol: symbol.name)[0]
         is_constant = False
 
-    warnings = _collect_edge_case_warnings(
-        original_expr=user_expr,
-        normalized_expr=normalized_expr,
-        parsed_expr=parsed_expr,
-        var=var,
-        is_constant=is_constant,
-    )
-
     if method_key == "direct_sympy":
         derivative, steps, rules_used = differentiate_direct_sympy(parsed_expr, var)
     else:
         derivative, steps, rules_used = differentiate_with_steps(parsed_expr, var)
 
+    verification = build_verification_report(parsed_expr, derivative, var)
     runtime_s = time.time() - start_time
     method_label = METHOD_LABELS[method_key]
     lines, iterations = _build_success_lines(
@@ -584,7 +649,7 @@ def compute_derivative_report(
         is_constant=is_constant,
         runtime_s=runtime_s,
         timestamp_str=timestamp_str,
-        warnings=warnings,
+        verification=verification,
     )
 
     return DerivativeResult(
@@ -602,7 +667,7 @@ def compute_derivative_report(
         variable=var,
         is_constant=is_constant,
         rules_used=rules_used,
-        warnings=warnings,
+        verification=verification,
     )
 
 
@@ -647,40 +712,29 @@ def type_trail_lines(
 
 # ---------------------- COMPUTE BUTTON BACKEND ----------------------
 def start_validation():
+    global last_result
     compute_btn.configure(state="disabled")
+    export_btn.configure(state="disabled")
     clear_trail(trail_box)
     final_value.configure(text="Computing...")
-    _set_status("Checking expression and handling edge cases...")
     _set_meta(None, None, None)
 
     method_label = method_var.get()
     method_key = METHOD_KEYS_BY_LABEL.get(method_label, DEFAULT_METHOD_KEY)
-
-    try:
-        result = compute_derivative_report(entry.get(), method_key)
-    except Exception:
-        result = build_unexpected_error_result(
-            method_key=method_key,
-            now=datetime.now(),
-            message="Unexpected error during derivative computation. Please revise the input and try again.",
-        )
+    result = compute_derivative_report(entry.get(), method_key)
+    
+    last_result = result
 
     if not result.success:
         trail_box.configure(state="normal")
         trail_box.insert("end", "\n".join(result.lines) + "\n")
         trail_box.configure(state="disabled")
         final_value.configure(text=result.final_answer_text)
-        _set_status(result.message, "error")
         _set_meta(result.runtime_s, result.timestamp, result.iterations)
         compute_btn.configure(state="normal")
         return
 
     final_line_index = result.lines.index(result.final_answer_text)
-
-    if result.warnings:
-        _set_status(f"{len(result.warnings)} warning(s) noted. Review the trail for details.", "warning")
-    else:
-        _set_status("Derivative computed successfully.", "success")
 
     trail_box.configure(state="normal")
     trail_box.insert("end", f"Computing derivative with {result.method_label}...\n\n")
@@ -690,6 +744,7 @@ def start_validation():
         final_value.configure(text=result.final_answer_text)
         _set_meta(result.runtime_s, result.timestamp, result.iterations)
         compute_btn.configure(state="normal")
+        export_btn.configure(state="normal")
 
     trail_box.after(
         700,
@@ -706,6 +761,7 @@ def start_validation():
 
 # ---------------------- LINK BACKEND TO BUTTON ----------------------
 compute_btn.configure(command=start_validation)
+export_btn.configure(command=export_report)
 
 
 # ---------------------- RUN APP ----------------------
