@@ -542,16 +542,16 @@ def _build_success_lines(
         lines.append("   Numeric back-check skipped: no safe real sample points were found.")
     lines.append(f"5. Overall verification: {verification.status_text}")
     lines.append("")
-    lines.append("SUMMARY:")
-    lines.append(f"Method used: {method_label}")
-    if rules_used:
-        lines.append("Rules used: " + ", ".join(sorted(rules_used)))
-    lines.append(f"Verification: {verification.status_text}")
+    # lines.append("SUMMARY:")
+    # lines.append(f"Method used: {method_label}")
+    # if rules_used:
+    #     lines.append("Rules used: " + ", ".join(sorted(rules_used)))
+    # lines.append(f"Verification: {verification.status_text}")
     iterations = len(steps) + 1
-    lines.append(f"Runtime: {runtime_s:.3f}s")
-    lines.append(f"Timestamp: {timestamp_str}")
-    lines.append(f"Iterations: {iterations}")
-    lines.append(f"Library: {LIBRARY_NAME}")
+    # lines.append(f"Runtime: {runtime_s:.3f}s")
+    # lines.append(f"Timestamp: {timestamp_str}")
+    # lines.append(f"Iterations: {iterations}")
+    # lines.append(f"Library: {LIBRARY_NAME}")
 
     return lines, iterations
 
@@ -723,9 +723,9 @@ def start_validation():
 
     final_line_index = result.lines.index(result.final_answer_text)
 
-    trail_box.configure(state="normal")
-    trail_box.insert("end", f"Computing derivative with {result.method_label}...\n\n")
-    trail_box.configure(state="disabled")
+    # trail_box.configure(state="normal")
+    # trail_box.insert("end", f"Computing derivative with {result.method_label}...\n\n")
+    # trail_box.configure(state="disabled")
 
     def finalize():
         final_value.configure(text=result.final_answer_text)
