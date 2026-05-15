@@ -18,11 +18,14 @@ from sympy.parsing.sympy_parser import (
 from trail_logger import clear_trail
 from ui_design import (
     app,
+    clear_btn,
+    clear_input,
     compute_btn,
     entry,
     export_btn,
     final_value,
     method_var,
+    reset_btn,
     trail_box,
     trail_meta,
 )
@@ -57,6 +60,8 @@ METHOD_KEYS_BY_LABEL = {label: key for key, label in METHOD_LABELS.items()}
 DEFAULT_METHOD_KEY = "rule_based"
 
 last_result: Optional["DerivativeResult"] = None
+active_computation_token = 0
+pending_ui_callback_ids: Set[str] = set()
 
 # ---------------------- EXPORT FUNCTIONALITY ----------------------
 def export_report():
@@ -707,6 +712,48 @@ def compute_derivative_report(
     )
 
 
+# ---------------------- ACTIVE RUN CANCELLATION ----------------------
+def _cancel_pending_ui_callbacks() -> None:
+    for callback_id in list(pending_ui_callback_ids):
+        try:
+            trail_box.after_cancel(callback_id)
+        except Exception:
+            pass
+        pending_ui_callback_ids.discard(callback_id)
+
+
+def cancel_active_computation(clear_result: bool = True) -> int:
+    global active_computation_token, last_result
+
+    active_computation_token += 1
+    _cancel_pending_ui_callbacks()
+
+    if clear_result:
+        last_result = None
+
+    try:
+        compute_btn.configure(state="normal")
+        export_btn.configure(state="disabled")
+    except Exception:
+        pass
+
+    return active_computation_token
+
+
+def _schedule_ui_callback(delay: int, callback, run_token: int):
+    callback_id = None
+
+    def guarded_callback():
+        pending_ui_callback_ids.discard(callback_id)
+        if run_token != active_computation_token:
+            return
+        callback()
+
+    callback_id = trail_box.after(delay, guarded_callback)
+    pending_ui_callback_ids.add(callback_id)
+    return callback_id
+
+
 # ---------------------- TYPING EFFECT ----------------------
 def type_trail_lines(
     textbox,
@@ -715,8 +762,10 @@ def type_trail_lines(
     start_fresh: bool = False,
     on_complete=None,
     bold_indices: Optional[Set[int]] = None,
+    run_token: Optional[int] = None,
 ):
     bold_indices = bold_indices or set()
+    run_token = active_computation_token if run_token is None else run_token
     try:
         textbox.tag_configure("bold", font=(None, 16, "bold"))
     except Exception:
@@ -728,6 +777,9 @@ def type_trail_lines(
         textbox.configure(state="disabled")
 
     def insert_line(index: int):
+        if run_token != active_computation_token:
+            return
+
         if index >= len(lines):
             textbox.configure(state="disabled")
             if on_complete:
@@ -741,7 +793,7 @@ def type_trail_lines(
             textbox.insert("end", lines[index] + "\n")
         textbox.see("end")
         textbox.configure(state="disabled")
-        textbox.after(delay, lambda: insert_line(index + 1))
+        _schedule_ui_callback(delay, lambda: insert_line(index + 1), run_token)
 
     insert_line(0)
 
@@ -749,6 +801,7 @@ def type_trail_lines(
 # ---------------------- COMPUTE BUTTON BACKEND ----------------------
 def start_validation():
     global last_result
+    run_token = cancel_active_computation(clear_result=True)
     compute_btn.configure(state="disabled")
     export_btn.configure(state="disabled")
     clear_trail(trail_box)
@@ -760,6 +813,9 @@ def start_validation():
     result = compute_derivative_report(entry.get(), method_key)
     
     last_result = result
+
+    if run_token != active_computation_token:
+        return
 
     if not result.success:
         trail_box.configure(state="normal")
@@ -777,12 +833,14 @@ def start_validation():
     # trail_box.configure(state="disabled")
 
     def finalize():
+        if run_token != active_computation_token:
+            return
         final_value.configure(text=result.final_answer_text)
         _set_meta(result.runtime_s, result.timestamp, result.iterations)
         compute_btn.configure(state="normal")
         export_btn.configure(state="normal")
 
-    trail_box.after(
+    _schedule_ui_callback(
         700,
         lambda: type_trail_lines(
             trail_box,
@@ -791,12 +849,21 @@ def start_validation():
             start_fresh=False,
             on_complete=finalize,
             bold_indices={final_line_index},
+            run_token=run_token,
         ),
+        run_token,
     )
+
+
+def reset_interface():
+    cancel_active_computation(clear_result=True)
+    clear_input()
 
 
 # ---------------------- LINK BACKEND TO BUTTON ----------------------
 compute_btn.configure(command=start_validation)
+clear_btn.configure(command=reset_interface)
+reset_btn.configure(command=reset_interface)
 export_btn.configure(command=export_report)
 
 
