@@ -156,6 +156,55 @@ def format_expression(expr_obj: sp.Expr) -> str:
     return re.sub(r"\^1(\b)", r"\1", text)
 
 
+def expressions_are_equivalent(left: sp.Expr, right: sp.Expr) -> bool:
+    try:
+        return sp.simplify(left - right) == 0
+    except Exception:
+        return False
+
+
+def _expression_readability_score(expr: sp.Expr) -> Tuple[int, int, int, str]:
+    rendered = format_expression(expr)
+    return (sp.count_ops(expr), len(rendered), len(expr.free_symbols), rendered)
+
+
+def simplify_expression_strong(expr: sp.Expr) -> sp.Expr:
+    candidates: List[sp.Expr] = []
+
+    def add_candidate(candidate: Optional[sp.Expr]) -> None:
+        if candidate is None or not expressions_are_equivalent(expr, candidate):
+            return
+        for existing in candidates:
+            if existing == candidate:
+                return
+        candidates.append(candidate)
+
+    add_candidate(expr)
+
+    try:
+        simplified = sp.simplify(expr)
+        together_expr = sp.together(simplified)
+        candidate_builders = (
+            lambda: simplified,
+            lambda: sp.cancel(simplified),
+            lambda: sp.factor(simplified),
+            lambda: together_expr,
+            lambda: sp.cancel(together_expr),
+            lambda: sp.factor(together_expr),
+            lambda: sp.factor(sp.cancel(together_expr)),
+            lambda: sp.factor_terms(sp.cancel(together_expr)),
+        )
+        for build_candidate in candidate_builders:
+            try:
+                add_candidate(build_candidate())
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    return min(candidates, key=_expression_readability_score)
+
+
 def normalize_input(expr: str) -> str:
     replacements = {
         "^": "**",
@@ -376,15 +425,15 @@ def differentiate_with_steps(expr: sp.Expr, var: sp.Symbol) -> Tuple[sp.Expr, Li
         return derivative
 
     raw_derivative = recurse(expr)
-    simplified = sp.simplify(raw_derivative)
-    if sp.simplify(raw_derivative - simplified) != 0:
+    simplified = simplify_expression_strong(raw_derivative)
+    if expressions_are_equivalent(raw_derivative, simplified) and raw_derivative != simplified:
         record(f"Simplify: {format_expression(simplified)}", "Simplify")
 
     return simplified, steps, used_rules
 
 
 def differentiate_direct_sympy(expr: sp.Expr, var: sp.Symbol) -> Tuple[sp.Expr, List[Step], Set[str]]:
-    derivative = sp.simplify(sp.diff(expr, var))
+    derivative = simplify_expression_strong(sp.diff(expr, var))
     steps = [
         Step("Use SymPy's direct differentiator on the parsed expression", "Direct SymPy"),
         Step(f"d/d{var}({format_expression(expr)}) = {format_expression(derivative)}", "Direct SymPy"),
@@ -426,9 +475,9 @@ def build_verification_report(
     derivative: sp.Expr,
     var: sp.Symbol,
 ) -> VerificationResult:
-    reference_derivative = sp.simplify(sp.diff(parsed_expr, var))
-    difference_expr = sp.simplify(derivative - reference_derivative)
-    symbolic_passed = difference_expr == 0
+    reference_derivative = simplify_expression_strong(sp.diff(parsed_expr, var))
+    difference_expr = simplify_expression_strong(derivative - reference_derivative)
+    symbolic_passed = expressions_are_equivalent(derivative, reference_derivative)
 
     numeric_samples: List[VerificationSample] = []
 
