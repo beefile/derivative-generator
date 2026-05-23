@@ -157,7 +157,7 @@ def show_about_popup(parent, *, font_title: Optional[object] = None, font_body: 
     inner.grid_columnconfigure(0, weight=1)
 
     # build inner layout with header, scrollable content, and footer button
-    # ---------------------- HEADER (About + red bar) ----------------------
+    # ---------------------- HEADER (README + red bar) ----------------------
     header_wrap = ctk.CTkFrame(inner, fg_color="transparent")
     header_wrap.grid(row=0, column=0, sticky="ew", padx=16, pady=(12, 6))
     header_wrap.grid_columnconfigure(1, weight=1)
@@ -224,36 +224,42 @@ def show_about_popup(parent, *, font_title: Optional[object] = None, font_body: 
     content_text = """DESCRIPTION:
 The Symbolic Derivative Generator is a Python-based desktop application that computes derivatives and displays a complete step-by-step solution trail.
 
-It supports multiple differentiation rules and ensures transparency by showing how results are obtained.
+SETUP:
+1. Install Python 3.x.
+2. Install dependencies with: pip install sympy customtkinter
+3. Run the application with: python main.py
+
+USAGE:
+1. Enter a mathematical expression.
+2. Select a method (Rule-Based or Direct SymPy).
+3. Click Compute.
+4. View the solution trail, final answer, and verification summary.
 
 FEATURES:
-• Rule-Based differentiation with detailed steps  
-• Direct SymPy computation (fast method)  
-• Solution Trail visualization  
-• Input validation and error handling  
-• Verification of results using SymPy  
+- Rule-Based differentiation with detailed steps
+- Direct SymPy computation for fast results
+- Solution Trail visualization
+- Input validation and error handling
+- Verification of results using SymPy
 
-HOW TO USE:
-1. Enter a mathematical expression  
-2. Select a method (Rule-Based or Direct SymPy)  
-3. Click Compute  
-4. View the solution trail and final answer  
+LIMITATIONS:
+- Supports only single-variable expressions
+- Limited support for very complex symbolic expressions
+- Output formatting may vary depending on input
 
 DEVELOPERS:
-Andino, Vanessa Mae M.  
-Llantos, Roselyn G.  
-Ochoa, Josephine Lorraine P.  
-Palomar, Vhina May F.  
+Andino, Vanessa Mae M.
+Llantos, Roselyn G.
+Ochoa, Josephine Lorraine P.
+Palomar, Vhina May F.
 
-VERSION
-Version 1.0 (Midterm)  
+VERSION:
+Version 1.0
 
 COURSE:
-COSC 110 – Numerical and Symbolic Computation  
+COSC 110 - Numerical and Symbolic Computation
 
 Instructor: Sir Ronald Joy Tengco
-
-This application was developed as a midterm project for COSC 110, showcasing the implementation of symbolic differentiation using Python and SymPy.
     """
 
     # IMPORTANT: remove indentation in content_text
