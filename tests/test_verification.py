@@ -1,5 +1,6 @@
 import unittest
 
+from main import format_expression
 from main import compute_derivative_report
 
 
@@ -28,6 +29,16 @@ class VerificationTests(unittest.TestCase):
         self.assertTrue(result.verification.symbolic_passed)
         self.assertTrue(result.verification.numeric_passed)
         self.assertEqual(result.verification.status_text, "PASSED")
+
+    def test_direct_sympy_prefers_cleaner_equivalent_quotient_form(self):
+        result = compute_derivative_report("(x^2+1)/(x+1)", "direct_sympy")
+
+        self.assertTrue(result.success)
+        self.assertTrue(result.verification.symbolic_passed)
+        self.assertEqual(
+            format_expression(result.derivative),
+            "(x^2 + 2*x - 1)/(x + 1)^2",
+        )
 
     def test_constant_expression_still_shows_passed_verification(self):
         result = compute_derivative_report("5", "rule_based")

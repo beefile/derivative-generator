@@ -39,7 +39,7 @@ ctk.set_appearance_mode("light")
 app = ctk.CTk()
 app.title(TITLE)
 app.geometry("1200x760")
-app.minsize(860, 640)
+app.minsize(760, 520)
 app.configure(fg_color=PRIMARY)
 app.grid_rowconfigure(0, weight=1)
 app.grid_columnconfigure(0, weight=1)
@@ -179,7 +179,7 @@ root = ctk.CTkFrame(app, fg_color="#F0F0F0")
 root.grid(row=0, column=0, sticky="nsew")
 root.grid_columnconfigure(0, weight=1)
 root.grid_rowconfigure(0, weight=0)  # header: fixed
-root.grid_rowconfigure(1, weight=1)  # body: fills rest
+root.grid_rowconfigure(1, weight=1)  # scroll area: fills rest
 
 # ---------------------- HEADER ----------------------
 header = ctk.CTkFrame(
@@ -235,9 +235,19 @@ info_btn = ctk.CTkButton(
 info_btn.grid(row=0, column=2, sticky="e", padx=(0, 10))
 
 # ---------------------- MAIN BODY ----------------------
-body = ctk.CTkFrame(root, fg_color="#F0F0F0")
-body.grid(row=1, column=0, sticky="nsew", padx=SPACE_XL, pady=SPACE_LG)
-body.grid_rowconfigure(0, weight=1)
+body_scroll = ctk.CTkScrollableFrame(
+    root,
+    fg_color="#F0F0F0",
+    corner_radius=0,
+)
+body_scroll.grid(row=1, column=0, sticky="nsew")
+body_scroll.grid_columnconfigure(0, weight=1)
+body_scroll.grid_rowconfigure(0, weight=0)
+
+body = ctk.CTkFrame(body_scroll, fg_color="#F0F0F0")
+body.grid(row=0, column=0, sticky="nsew", padx=SPACE_XL, pady=SPACE_LG)
+body.grid_rowconfigure(0, weight=0)
+body.grid_rowconfigure(1, weight=0)
 body.grid_columnconfigure(0, weight=5)
 body.grid_columnconfigure(1, weight=6)
 
@@ -256,14 +266,13 @@ left_col.grid_rowconfigure(2, weight=1, minsize=60)    # Answer panel — compac
 right_col.grid_columnconfigure(0, weight=1)
 right_col.grid_rowconfigure(0, weight=1)
 
-# FIXED: prevent left/right columns from resizing based on content
-left_col.grid_propagate(False)
-right_col.grid_propagate(False)
+# Let the scroll container measure the full content height naturally.
+left_col.grid_propagate(True)
+right_col.grid_propagate(True)
 
 # ---------------------- INPUT PANEL ----------------------
 input_outer, input_panel = make_shadow_panel(left_col)
 input_outer.grid(row=0, column=0, sticky="nsew", pady=(0, SPACE_MD))
-input_outer.grid_propagate(False)  # FIXED
 
 input_panel.grid_columnconfigure(0, weight=1)
 input_panel.grid_rowconfigure(0, weight=0)  # Header
@@ -413,7 +422,6 @@ reset_btn.grid(row=0, column=1, sticky="e")
 # ---------------------- SYMBOLS PANEL ----------------------
 symbols_outer, symbols_panel = make_shadow_panel(left_col)
 symbols_outer.grid(row=1, column=0, sticky="nsew", pady=(0, SPACE_MD))
-symbols_outer.grid_propagate(False)  # FIXED
 
 symbols_panel.grid_columnconfigure(0, weight=1)
 symbols_panel.grid_rowconfigure(0, weight=0)
@@ -460,7 +468,6 @@ for i, (lbl, val) in enumerate(symbols):
 # ---------------------- ANSWER PANEL ----------------------
 answer_outer, answer_panel = make_shadow_panel(left_col)
 answer_outer.grid(row=2, column=0, sticky="nsew")
-answer_outer.grid_propagate(False)  # FIXED: answer panel never grows when text appears
 
 answer_panel.grid_columnconfigure(0, weight=1)
 answer_panel.grid_rowconfigure(0, weight=0)   # Header
@@ -493,7 +500,6 @@ answer_body = ctk.CTkFrame(answer_panel, fg_color=PRIMARY, corner_radius=0)
 answer_body.grid(row=2, column=0, sticky="nsew", padx=SPACE_LG, pady=(0, SPACE_MD))
 answer_body.grid_columnconfigure(0, weight=1)
 answer_body.grid_rowconfigure(0, weight=1)
-answer_body.grid_propagate(False)  # FIXED: inner frame doesn't grow
 
 final_value = ctk.CTkLabel(
     answer_body,
@@ -509,7 +515,6 @@ final_value.grid(row=0, column=0, sticky="nsew")
 # ---------------------- SOLUTION TRAIL PANEL ----------------------
 trail_outer, trail_panel = make_shadow_panel(right_col)
 trail_outer.grid(row=0, column=0, sticky="nsew")
-trail_outer.grid_propagate(False)  # FIXED: trail panel never grows
 
 trail_panel.grid_columnconfigure(0, weight=1)
 trail_panel.grid_rowconfigure(0, weight=0)  # Header bar

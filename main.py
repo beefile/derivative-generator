@@ -18,11 +18,14 @@ from sympy.parsing.sympy_parser import (
 from trail_logger import clear_trail
 from ui_design import (
     app,
+    clear_btn,
+    clear_input,
     compute_btn,
     entry,
     export_btn,
     final_value,
     method_var,
+    reset_btn,
     trail_box,
     trail_meta,
 )
@@ -57,6 +60,8 @@ METHOD_KEYS_BY_LABEL = {label: key for key, label in METHOD_LABELS.items()}
 DEFAULT_METHOD_KEY = "rule_based"
 
 last_result: Optional["DerivativeResult"] = None
+active_computation_token = 0
+pending_ui_callback_ids: Set[str] = set()
 
 # ---------------------- EXPORT FUNCTIONALITY ----------------------
 def export_report():
@@ -154,6 +159,55 @@ def format_expression(expr_obj: sp.Expr) -> str:
     text = sp.sstr(expr_obj)
     text = text.replace("**", "^")
     return re.sub(r"\^1(\b)", r"\1", text)
+
+
+def expressions_are_equivalent(left: sp.Expr, right: sp.Expr) -> bool:
+    try:
+        return sp.simplify(left - right) == 0
+    except Exception:
+        return False
+
+
+def _expression_readability_score(expr: sp.Expr) -> Tuple[int, int, int, str]:
+    rendered = format_expression(expr)
+    return (sp.count_ops(expr), len(rendered), len(expr.free_symbols), rendered)
+
+
+def simplify_expression_strong(expr: sp.Expr) -> sp.Expr:
+    candidates: List[sp.Expr] = []
+
+    def add_candidate(candidate: Optional[sp.Expr]) -> None:
+        if candidate is None or not expressions_are_equivalent(expr, candidate):
+            return
+        for existing in candidates:
+            if existing == candidate:
+                return
+        candidates.append(candidate)
+
+    add_candidate(expr)
+
+    try:
+        simplified = sp.simplify(expr)
+        together_expr = sp.together(simplified)
+        candidate_builders = (
+            lambda: simplified,
+            lambda: sp.cancel(simplified),
+            lambda: sp.factor(simplified),
+            lambda: together_expr,
+            lambda: sp.cancel(together_expr),
+            lambda: sp.factor(together_expr),
+            lambda: sp.factor(sp.cancel(together_expr)),
+            lambda: sp.factor_terms(sp.cancel(together_expr)),
+        )
+        for build_candidate in candidate_builders:
+            try:
+                add_candidate(build_candidate())
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    return min(candidates, key=_expression_readability_score)
 
 
 def normalize_input(expr: str) -> str:
@@ -389,15 +443,15 @@ def differentiate_with_steps(expr: sp.Expr, var: sp.Symbol) -> Tuple[sp.Expr, Li
         return derivative
 
     raw_derivative = recurse(expr)
-    simplified = sp.simplify(raw_derivative)
-    if sp.simplify(raw_derivative - simplified) != 0:
+    simplified = simplify_expression_strong(raw_derivative)
+    if expressions_are_equivalent(raw_derivative, simplified) and raw_derivative != simplified:
         record(f"Simplify: {format_expression(simplified)}", "Simplify")
 
     return simplified, steps, used_rules
 
 
 def differentiate_direct_sympy(expr: sp.Expr, var: sp.Symbol) -> Tuple[sp.Expr, List[Step], Set[str]]:
-    derivative = sp.simplify(sp.diff(expr, var))
+    derivative = simplify_expression_strong(sp.diff(expr, var))
     steps = [
         Step("Use SymPy's direct differentiator on the parsed expression", "Direct SymPy"),
         Step(f"d/d{var}({format_expression(expr)}) = {format_expression(derivative)}", "Direct SymPy"),
@@ -439,9 +493,9 @@ def build_verification_report(
     derivative: sp.Expr,
     var: sp.Symbol,
 ) -> VerificationResult:
-    reference_derivative = sp.simplify(sp.diff(parsed_expr, var))
-    difference_expr = sp.simplify(derivative - reference_derivative)
-    symbolic_passed = difference_expr == 0
+    reference_derivative = simplify_expression_strong(sp.diff(parsed_expr, var))
+    difference_expr = simplify_expression_strong(derivative - reference_derivative)
+    symbolic_passed = expressions_are_equivalent(derivative, reference_derivative)
 
     numeric_samples: List[VerificationSample] = []
 
@@ -555,16 +609,16 @@ def _build_success_lines(
         lines.append("   Numeric back-check skipped: no safe real sample points were found.")
     lines.append(f"5. Overall verification: {verification.status_text}")
     lines.append("")
-    lines.append("SUMMARY:")
-    lines.append(f"Method used: {method_label}")
-    if rules_used:
-        lines.append("Rules used: " + ", ".join(sorted(rules_used)))
-    lines.append(f"Verification: {verification.status_text}")
+    # lines.append("SUMMARY:")
+    # lines.append(f"Method used: {method_label}")
+    # if rules_used:
+    #     lines.append("Rules used: " + ", ".join(sorted(rules_used)))
+    # lines.append(f"Verification: {verification.status_text}")
     iterations = len(steps) + 1
-    lines.append(f"Runtime: {runtime_s:.3f}s")
-    lines.append(f"Timestamp: {timestamp_str}")
-    lines.append(f"Iterations: {iterations}")
-    lines.append(f"Library: {LIBRARY_NAME}")
+    # lines.append(f"Runtime: {runtime_s:.3f}s")
+    # lines.append(f"Timestamp: {timestamp_str}")
+    # lines.append(f"Iterations: {iterations}")
+    # lines.append(f"Library: {LIBRARY_NAME}")
 
     return lines, iterations
 
@@ -671,6 +725,48 @@ def compute_derivative_report(
     )
 
 
+# ---------------------- ACTIVE RUN CANCELLATION ----------------------
+def _cancel_pending_ui_callbacks() -> None:
+    for callback_id in list(pending_ui_callback_ids):
+        try:
+            trail_box.after_cancel(callback_id)
+        except Exception:
+            pass
+        pending_ui_callback_ids.discard(callback_id)
+
+
+def cancel_active_computation(clear_result: bool = True) -> int:
+    global active_computation_token, last_result
+
+    active_computation_token += 1
+    _cancel_pending_ui_callbacks()
+
+    if clear_result:
+        last_result = None
+
+    try:
+        compute_btn.configure(state="normal")
+        export_btn.configure(state="disabled")
+    except Exception:
+        pass
+
+    return active_computation_token
+
+
+def _schedule_ui_callback(delay: int, callback, run_token: int):
+    callback_id = None
+
+    def guarded_callback():
+        pending_ui_callback_ids.discard(callback_id)
+        if run_token != active_computation_token:
+            return
+        callback()
+
+    callback_id = trail_box.after(delay, guarded_callback)
+    pending_ui_callback_ids.add(callback_id)
+    return callback_id
+
+
 # ---------------------- TYPING EFFECT ----------------------
 def type_trail_lines(
     textbox,
@@ -679,8 +775,10 @@ def type_trail_lines(
     start_fresh: bool = False,
     on_complete=None,
     bold_indices: Optional[Set[int]] = None,
+    run_token: Optional[int] = None,
 ):
     bold_indices = bold_indices or set()
+    run_token = active_computation_token if run_token is None else run_token
     try:
         textbox.tag_configure("bold", font=(None, 16, "bold"))
     except Exception:
@@ -692,6 +790,9 @@ def type_trail_lines(
         textbox.configure(state="disabled")
 
     def insert_line(index: int):
+        if run_token != active_computation_token:
+            return
+
         if index >= len(lines):
             textbox.configure(state="disabled")
             if on_complete:
@@ -705,7 +806,7 @@ def type_trail_lines(
             textbox.insert("end", lines[index] + "\n")
         textbox.see("end")
         textbox.configure(state="disabled")
-        textbox.after(delay, lambda: insert_line(index + 1))
+        _schedule_ui_callback(delay, lambda: insert_line(index + 1), run_token)
 
     insert_line(0)
 
@@ -713,6 +814,7 @@ def type_trail_lines(
 # ---------------------- COMPUTE BUTTON BACKEND ----------------------
 def start_validation():
     global last_result
+    run_token = cancel_active_computation(clear_result=True)
     compute_btn.configure(state="disabled")
     export_btn.configure(state="disabled")
     clear_trail(trail_box)
@@ -725,6 +827,9 @@ def start_validation():
     
     last_result = result
 
+    if run_token != active_computation_token:
+        return
+
     if not result.success:
         trail_box.configure(state="normal")
         trail_box.insert("end", "\n".join(result.lines) + "\n")
@@ -736,17 +841,19 @@ def start_validation():
 
     final_line_index = result.lines.index(result.final_answer_text)
 
-    trail_box.configure(state="normal")
-    trail_box.insert("end", f"Computing derivative with {result.method_label}...\n\n")
-    trail_box.configure(state="disabled")
+    # trail_box.configure(state="normal")
+    # trail_box.insert("end", f"Computing derivative with {result.method_label}...\n\n")
+    # trail_box.configure(state="disabled")
 
     def finalize():
+        if run_token != active_computation_token:
+            return
         final_value.configure(text=result.final_answer_text)
         _set_meta(result.runtime_s, result.timestamp, result.iterations)
         compute_btn.configure(state="normal")
         export_btn.configure(state="normal")
 
-    trail_box.after(
+    _schedule_ui_callback(
         700,
         lambda: type_trail_lines(
             trail_box,
@@ -755,12 +862,21 @@ def start_validation():
             start_fresh=False,
             on_complete=finalize,
             bold_indices={final_line_index},
+            run_token=run_token,
         ),
+        run_token,
     )
+
+
+def reset_interface():
+    cancel_active_computation(clear_result=True)
+    clear_input()
 
 
 # ---------------------- LINK BACKEND TO BUTTON ----------------------
 compute_btn.configure(command=start_validation)
+clear_btn.configure(command=reset_interface)
+reset_btn.configure(command=reset_interface)
 export_btn.configure(command=export_report)
 
 
